@@ -1,39 +1,54 @@
 {
   "name": "dsh-os-agent-plugin",
-  "version": "0.1.0",
-  "description": "Volcengine Mobile Use Agent tools and live settings for DeepSeek Harness.",
+  "version": "0.2.0",
+  "description": "Self-contained Volcengine Mobile Use Agent runtime and configuration UI for DeepSeek Harness.",
   "type": "module",
   "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
   "scripts": {
+    "build": "node scripts/build-client.mjs",
     "check": "node --check index.js",
     "test": "vitest run"
   },
   "files": [
     "index.js",
+    "volcengine.js",
+    "web-config.js",
+    "lib/client.js",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "README.zh.md",
+    "README.i18n.yaml",
+    "LICENSE"
   ],
-  "devDependencies": {
-    "@deepseek-ai/cordis": "link:../vendor/cordis",
-    "@deepseek-ai/dsh-credentials": "link:../packages/credentials/credentials",
-    "@deepseek-ai/dsh-launch-environment": "link:../packages/util/launch-environment",
-    "@deepseek-ai/dsh-settings": "link:../packages/settings/settings",
-    "@deepseek-ai/dsh-system-prompt": "link:../packages/core/system-prompt",
-    "@deepseek-ai/dsh-tools": "link:../packages/core/tools",
-    "@deepseek-ai/schemastery": "link:../vendor/schemastery",
-    "vitest": "^4.1.8"
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
   },
-  "peerDependencies": {
-    "@deepseek-ai/dsh-credentials": "0.1.0-rc.5",
-    "@deepseek-ai/dsh-launch-environment": "0.1.0-rc.5",
-    "@deepseek-ai/dsh-settings": "0.1.0-rc.5",
-    "@deepseek-ai/dsh-tools": "0.1.0-rc.5",
-    "@deepseek-ai/schemastery": "3.18.1"
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chenjie1129/deepseek-harness-os-agent-plugin.git"
   },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-settings-plugins"
+      ]
     }
   },
-  "license": "MIT"
+  "devDependencies": {
+    "esbuild": "^0.28.1",
+    "vitest": "^4.1.8"
+  },
+  "license": "MIT",
+  "packageManager": "pnpm@11.7.0"
 }

@@ -12,12 +12,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+          run_install: false
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: pnpm
-      - run: corepack enable
-      - run: corepack prepare pnpm@11.7.0 --activate
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       - run: pnpm test
@@ -37,6 +39,10 @@ jobs:
           repository: deepseek-ai/deepseek-harness
           ref: b150a551b8d465e31e418e1b2eaf5e79bbb7d28e
           path: harness
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+          run_install: false
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -44,8 +50,6 @@ jobs:
           cache-dependency-path: |
             plugin/pnpm-lock.yaml
             harness/pnpm-lock.yaml
-      - run: corepack enable
-      - run: corepack prepare pnpm@11.7.0 --activate
       - run: pnpm install --frozen-lockfile
         working-directory: plugin
       - run: pnpm build

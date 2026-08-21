@@ -14,6 +14,7 @@ if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error(`Inval
 const command = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
 const child = spawn(command, ['dsh', '--profile', 'web', '--no-open', '--port', String(port)], {
   cwd: harnessDir,
+  detached: process.platform !== 'win32',
   env: { ...process.env, DSH_HOME: dshHome },
   stdio: ['ignore', 'pipe', 'pipe'],
 })
@@ -61,9 +62,11 @@ try {
     clientModuleServed: true,
   }, null, 2)}\n`)
 } finally {
-  if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM')
+  stopChild('SIGTERM')
   await Promise.race([exited, new Promise(resolveWait => setTimeout(resolveWait, 5_000))])
-  if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+  stopChild('SIGKILL')
+  child.stdout.destroy()
+  child.stderr.destroy()
 }
 
 function logsRef() {
@@ -89,4 +92,14 @@ async function waitUntilReady(baseUrl, processHandle, readLogs) {
 
 function assert(condition, message) {
   if (!condition) throw new Error(message)
+}
+
+function stopChild(signal) {
+  if (child.exitCode !== null || child.signalCode !== null) return
+  try {
+    if (process.platform === 'win32') child.kill(signal)
+    else process.kill(-child.pid, signal)
+  } catch (error) {
+    if (error?.code !== 'ESRCH') throw error
+  }
 }

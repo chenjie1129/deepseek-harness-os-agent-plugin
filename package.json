@@ -1,0 +1,39 @@
+{
+  "name": "dsh-os-agent-plugin",
+  "version": "0.1.0",
+  "description": "Volcengine Mobile Use Agent tools and live settings for DeepSeek Harness.",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "check": "node --check index.js",
+    "test": "vitest run"
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "devDependencies": {
+    "@deepseek-ai/cordis": "link:../vendor/cordis",
+    "@deepseek-ai/dsh-credentials": "link:../packages/credentials/credentials",
+    "@deepseek-ai/dsh-launch-environment": "link:../packages/util/launch-environment",
+    "@deepseek-ai/dsh-settings": "link:../packages/settings/settings",
+    "@deepseek-ai/dsh-system-prompt": "link:../packages/core/system-prompt",
+    "@deepseek-ai/dsh-tools": "link:../packages/core/tools",
+    "@deepseek-ai/schemastery": "link:../vendor/schemastery",
+    "vitest": "^4.1.8"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-credentials": "0.1.0-rc.5",
+    "@deepseek-ai/dsh-launch-environment": "0.1.0-rc.5",
+    "@deepseek-ai/dsh-settings": "0.1.0-rc.5",
+    "@deepseek-ai/dsh-tools": "0.1.0-rc.5",
+    "@deepseek-ai/schemastery": "3.18.1"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "license": "MIT"
+}

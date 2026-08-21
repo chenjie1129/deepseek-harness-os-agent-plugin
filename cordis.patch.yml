@@ -1,0 +1,4 @@
+- insert:
+    - id: os-agent-plugin
+      name: dsh-os-agent-plugin
+      config: {}

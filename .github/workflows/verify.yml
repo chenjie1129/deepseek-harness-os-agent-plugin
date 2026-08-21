@@ -1,0 +1,70 @@
+name: Verify plugin
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm test
+      - run: pnpm build
+      - run: pnpm audit --audit-level high
+      - run: mkdir -p artifacts
+      - run: pnpm pack --pack-destination artifacts
+
+  harness-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: plugin
+      - uses: actions/checkout@v4
+        with:
+          repository: deepseek-ai/deepseek-harness
+          ref: b150a551b8d465e31e418e1b2eaf5e79bbb7d28e
+          path: harness
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: |
+            plugin/pnpm-lock.yaml
+            harness/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: plugin
+      - run: pnpm build
+        working-directory: plugin
+      - run: mkdir -p "${RUNNER_TEMP}/plugin-pack"
+      - run: pnpm pack --pack-destination "${RUNNER_TEMP}/plugin-pack"
+        working-directory: plugin
+      - run: pnpm install --frozen-lockfile
+        working-directory: harness
+      - run: pnpm build
+        working-directory: harness
+      - run: pnpm dsh plugin --profile web add "${RUNNER_TEMP}/plugin-pack/dsh-os-agent-plugin-0.2.0.tgz"
+        working-directory: harness
+        env:
+          DSH_HOME: ${{ runner.temp }}/dsh-home
+      - run: node plugin/scripts/verify-harness-install.mjs harness "${RUNNER_TEMP}/dsh-home" 3093

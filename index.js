@@ -1,51 +1,39 @@
-/**
- * Volcengine Mobile Use Agent tools for DeepSeek Harness.
- *
- * The plugin keeps credentials in Harness's credential store, exposes the
- * remaining options through the `os-agent` live-settings namespace, signs
- * calls with Volcengine's official Node SDK, and maps the asynchronous API to
- * start/status/result tools.
- */
+/** Volcengine Mobile Use Agent runtime plugin for DeepSeek Harness. */
 
-import { createHash, createHmac, randomUUID } from 'node:crypto'
 import z from '@deepseek-ai/schemastery'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import {
+  DEFAULT_MAX_STEPS,
+  DEFAULT_TIMEOUT_SECONDS,
+  MobileUseError,
+  VolcengineMobileUseClient,
+  assertIntegerRange,
+  buildRunAgentTaskOneStepBody,
+  trimmed,
+} from './volcengine.js'
+import { CONFIG_ENDPOINT, createConfigRoute } from './web-config.js'
+
+export {
+  DEFAULT_MAX_STEPS,
+  DEFAULT_TIMEOUT_SECONDS,
+  MobileUseError,
+  VolcengineMobileUseClient,
+  buildRunAgentTaskOneStepBody,
+  signRequest,
+} from './volcengine.js'
+export { CONFIG_ENDPOINT, createConfigRoute, normalizeConfig } from './web-config.js'
 
 export const name = 'os-agent-plugin'
 export const inject = ['tools', 'systemPrompt']
 
-const API_HOST = 'open.volcengineapi.com'
-const API_ORIGIN = `https://${API_HOST}`
-const API_VERSION = '2023-08-01'
-const API_REGION = 'cn-north-1'
-const API_SERVICE = 'ipaas'
-
 export const DEFAULT_ACCESS_KEY_REF = 'VOLC_ACCESSKEY'
 export const DEFAULT_SECRET_KEY_REF = 'VOLC_SECRETKEY'
-export const DEFAULT_MAX_STEPS = 100
-export const DEFAULT_TIMEOUT_SECONDS = 120
 export const OS_AGENT_SETTINGS_NAMESPACE = settingsNamespace('os-agent')
 
-/** @typedef {{
- * accessKey?: string,
- * accessKeyEnv?: string,
- * secretKey?: string,
- * secretKeyEnv?: string,
- * productId?: string,
- * podId?: string,
- * maxSteps?: number,
- * timeout?: number,
- * systemPrompt?: string,
- * tosBucket?: string,
- * tosEndpoint?: string,
- * tosRegion?: string,
- * }} Config */
-
-/** Runtime and settings schema. Secret literals exist for headless composition;
- * the web card writes them through the credential service instead. */
+/** Runtime and settings schema. Secret literals remain available for headless composition. */
 export const Config = z.object({
   accessKey: z.string().role('secret'),
   accessKeyEnv: z.string().role('credential-ref').default(DEFAULT_ACCESS_KEY_REF),
@@ -61,172 +49,34 @@ export const Config = z.object({
   tosRegion: z.string().default(''),
 })
 
-/** A stable, model-readable output contract for all three tools. */
 const TEXT_OUTPUT = {
   schema: { type: 'string' },
   render: (_args, value) => [{ type: 'text', text: value }],
 }
 
-/** Error whose public message never includes a credential or signed header. */
-export class MobileUseError extends Error {
-  constructor(message, code = 'MOBILE_USE_ERROR') {
-    super(message)
-    this.name = 'MobileUseError'
-    this.code = code
-  }
-}
-
-/**
- * Minimal signed Volcengine OpenAPI client. Node's crypto implementation follows
- * Volcengine's HMAC-SHA256 canonical-request format, while native fetch supplies
- * cancellation without bringing the SDK's unrelated service dependencies into
- * the Harness process.
- */
-export class VolcengineMobileUseClient {
-  constructor(credentials, options = {}) {
-    this.credentials = credentials
-    this.fetchImpl = options.fetchImpl ?? globalThis.fetch
-    this.now = options.now ?? (() => new Date())
-    this.origin = options.origin ?? API_ORIGIN
-  }
-
-  async call(action, method, input, signal) {
-    const body = method === 'POST' ? JSON.stringify(input) : undefined
-    const request = {
-      region: API_REGION,
-      method,
-      pathname: '/',
-      params: {
-        Action: action,
-        Version: API_VERSION,
-        ...(method === 'GET' ? input : {}),
-      },
-      headers: {
-        ...(method === 'POST' ? { 'content-type': 'application/json; charset=utf-8' } : {}),
-      },
-      ...(body === undefined ? {} : { body }),
-    }
-    signRequest(request, this.credentials, this.now())
-
-    const query = new URLSearchParams()
-    for (const [key, value] of Object.entries(request.params)) {
-      if (value !== undefined && value !== null) query.append(key, String(value))
-    }
-
-    let response
-    try {
-      response = await this.fetchImpl(`${this.origin}/?${query.toString()}`, {
-        method,
-        headers: request.headers,
-        ...(body === undefined ? {} : { body }),
-        ...(signal === undefined ? {} : { signal }),
-      })
-    } catch (error) {
-      if (error instanceof MobileUseError) throw error
-      throw new MobileUseError(`Volcengine Mobile Use request failed: ${safeErrorText(error)}`, 'MOBILE_USE_REQUEST_FAILED')
-    }
-
-    const payload = await parseResponseBody(response)
-    const metadata = isRecord(payload.ResponseMetadata) ? payload.ResponseMetadata : undefined
-    const apiError = metadata !== undefined && isRecord(metadata.Error) ? metadata.Error : undefined
-    if (!response.ok || apiError !== undefined) {
-      const code = stringValue(apiError?.Code) ?? `HTTP_${response.status}`
-      const message = stringValue(apiError?.Message) ?? `HTTP ${response.status}`
-      const requestId = stringValue(metadata?.RequestId)
-      throw new MobileUseError(
-        `Volcengine Mobile Use API rejected the request (${code}): ${message}${requestId === undefined ? '' : ` [request ${requestId}]`}`,
-        code,
-      )
-    }
-
-    return {
-      requestId: stringValue(metadata?.RequestId),
-      result: payload.Result ?? payload,
-    }
-  }
-}
-
-/**
- * Apply Volcengine's HMAC-SHA256 request signature in place.
- * @param {Record<string, any>} request - canonical request inputs.
- * @param {{ accessKeyId: string, secretKey: string }} credentials - Volcengine credentials.
- * @param {Date} date - signing timestamp.
- */
-export function signRequest(request, credentials, date) {
-  const datetime = date.toISOString().replace(/[:\-]|\.\d{3}/g, '')
-  request.params = Object.fromEntries(
-    Object.entries(request.params ?? {})
-      .filter(([, value]) => value !== undefined && value !== null)
-      .sort(([left], [right]) => compareCodeUnits(left, right)),
-  )
-  request.headers['X-Date'] = datetime
-  if (request.body !== undefined && request.body !== '') {
-    request.headers['X-Content-Sha256'] = sha256(request.body)
-  }
-
-  const signableHeaders = Object.entries(request.headers)
-    .map(([key, value]) => [key.toLowerCase(), String(value).replace(/\s+/g, ' ').trim()])
-    .filter(([key]) => !UNSIGNABLE_HEADERS.has(key))
-    .sort(([left], [right]) => compareCodeUnits(left, right))
-  const signedHeaderNames = signableHeaders.map(([key]) => key).join(';')
-  const canonicalHeaders = signableHeaders.map(([key, value]) => `${key}:${value}`).join('\n')
-  const canonicalRequest = [
-    request.method.toUpperCase(),
-    request.pathname ?? '/',
-    canonicalQuery(request.params),
-    `${canonicalHeaders}\n`,
-    signedHeaderNames,
-    request.headers['X-Content-Sha256'] ?? sha256(''),
-  ].join('\n')
-  const datePart = datetime.slice(0, 8)
-  const scope = `${datePart}/${request.region}/${API_SERVICE}/request`
-  const stringToSign = ['HMAC-SHA256', datetime, scope, sha256(canonicalRequest)].join('\n')
-  const dateKey = hmac(credentials.secretKey, datePart)
-  const regionKey = hmac(dateKey, request.region)
-  const serviceKey = hmac(regionKey, API_SERVICE)
-  const signingKey = hmac(serviceKey, 'request')
-  const signature = createHmac('sha256', signingKey).update(stringToSign).digest('hex')
-  request.headers.Authorization = `HMAC-SHA256 Credential=${credentials.accessKeyId}/${scope}, SignedHeaders=${signedHeaderNames}, Signature=${signature}`
-}
-
-const UNSIGNABLE_HEADERS = new Set([
-  'authorization', 'content-type', 'content-length', 'user-agent',
-  'presigned-expires', 'expect',
-])
-
-function canonicalQuery(params) {
-  return Object.entries(params)
-    .flatMap(([key, value]) => Array.isArray(value)
-      ? value.map(item => [key, item])
-      : [[key, value]])
-    .map(([key, value]) => `${uriEscape(key)}=${uriEscape(String(value))}`)
-    .join('&')
-}
-
-function uriEscape(value) {
-  return encodeURIComponent(value).replace(/[!'()*]/g, character => (
-    `%${character.charCodeAt(0).toString(16).toUpperCase()}`
-  ))
-}
-
-function sha256(value) {
-  return createHash('sha256').update(value).digest('hex')
-}
-
-function hmac(key, value) {
-  return createHmac('sha256', key).update(value).digest()
-}
-
-function compareCodeUnits(left, right) {
-  return left < right ? -1 : left > right ? 1 : 0
-}
-
-/** Register the live settings and the model-facing tools. */
+/** Register live settings, the optional Web configuration endpoint, and all three tools. */
 export function apply(ctx, config = {}) {
   let current = () => config
   installSettingsSection(ctx, OS_AGENT_SETTINGS_NAMESPACE, Config, config, {
     setSource: source => { current = source },
     onChange: () => {},
+    validate: validateTosConfig,
+  })
+
+  ctx.inject(['webServer', 'settings', 'credentials'], (webCtx) => {
+    const route = createConfigRoute({
+      settings: webCtx.settings,
+      credentials: webCtx.credentials,
+      namespace: OS_AGENT_SETTINGS_NAMESPACE,
+      credentialRefs: () => ({
+        accessKey: credentialRef(trimmed(current().accessKeyEnv) || DEFAULT_ACCESS_KEY_REF),
+        secretKey: credentialRef(trimmed(current().secretKeyEnv) || DEFAULT_SECRET_KEY_REF),
+      }),
+    })
+    webCtx.effect(
+      () => webCtx.webServer.register({ kind: 'exact', path: CONFIG_ENDPOINT, handler: route }),
+      'os-agent-plugin: configuration endpoint',
+    )
   })
 
   ctx.systemPrompt.section({
@@ -287,7 +137,7 @@ export function apply(ctx, config = {}) {
   }))
 }
 
-/** Resolve live settings and write-only credentials immediately before a call. */
+/** Resolve live configuration and write-only credentials immediately before one tool call. */
 export async function resolveOptions(ctx, config, behavior = {}) {
   const accessKey = await resolveCredential(ctx, config.accessKey, config.accessKeyEnv, DEFAULT_ACCESS_KEY_REF)
   const secretKey = await resolveCredential(ctx, config.secretKey, config.secretKeyEnv, DEFAULT_SECRET_KEY_REF)
@@ -307,15 +157,11 @@ export async function resolveOptions(ctx, config, behavior = {}) {
   const timeout = config.timeout ?? DEFAULT_TIMEOUT_SECONDS
   assertIntegerRange(maxSteps, 1, 500, 'max steps')
   assertIntegerRange(timeout, 1, 86_400, 'timeout')
-
+  validateTosConfig(config)
   const tos = {
     bucket: trimmed(config.tosBucket),
     endpoint: trimmed(config.tosEndpoint),
     region: trimmed(config.tosRegion),
-  }
-  const tosCount = Object.values(tos).filter(Boolean).length
-  if (tosCount !== 0 && tosCount !== 3) {
-    throw new MobileUseError('TOS bucket, endpoint, and region must be configured together.', 'MOBILE_USE_INVALID_TOS_CONFIG')
   }
 
   return {
@@ -325,33 +171,15 @@ export async function resolveOptions(ctx, config, behavior = {}) {
     maxSteps,
     timeout,
     systemPrompt: trimmed(config.systemPrompt),
-    tos: tosCount === 3 ? tos : undefined,
+    tos: Object.values(tos).every(Boolean) ? tos : undefined,
   }
 }
 
-/** Build exactly the current RunAgentTaskOneStep body described by Volcengine. */
-export function buildRunAgentTaskOneStepBody(options, args) {
-  const task = requireText(args.task, 'task')
-  if (args.screen_record === true && options.tos === undefined) {
-    throw new MobileUseError('Screen recording requires TOS bucket, endpoint, and region.', 'MOBILE_USE_INVALID_TOS_CONFIG')
-  }
-  return {
-    RunName: trimmed(args.run_name) || `dsh-os-agent-${randomUUID()}`,
-    PodId: options.podId,
-    ProductId: options.productId,
-    UserPrompt: task,
-    MaxStep: options.maxSteps,
-    Timeout: options.timeout,
-    ...(trimmed(args.thread_id) === '' ? {} : { ThreadId: trimmed(args.thread_id) }),
-    ...(options.systemPrompt === '' ? {} : { SystemPrompt: options.systemPrompt }),
-    ...(options.tos === undefined
-      ? {}
-      : {
-          TosBucket: options.tos.bucket,
-          TosEndpoint: options.tos.endpoint,
-          TosRegion: options.tos.region,
-        }),
-    ...(args.screen_record === true ? { IsScreenRecord: true } : {}),
+function validateTosConfig(config) {
+  const values = [config.tosBucket, config.tosEndpoint, config.tosRegion].map(trimmed)
+  const count = values.filter(Boolean).length
+  if (count !== 0 && count !== 3) {
+    throw new MobileUseError('TOS bucket, endpoint, and region must be configured together.', 'MOBILE_USE_INVALID_TOS_CONFIG')
   }
 }
 
@@ -364,44 +192,10 @@ async function resolveCredential(ctx, literal, declaredRef, fallbackRef) {
   return launchEnvironmentOf(ctx).get(ref)?.value ?? ''
 }
 
-async function parseResponseBody(response) {
-  const text = await response.text()
-  if (text === '') return {}
-  try {
-    const value = JSON.parse(text)
-    if (!isRecord(value)) throw new TypeError('response is not an object')
-    return value
-  } catch (_error) {
-    throw new MobileUseError(`Volcengine Mobile Use returned a non-JSON response (HTTP ${response.status}).`, 'MOBILE_USE_MALFORMED_RESPONSE')
-  }
-}
-
-function assertIntegerRange(value, min, max, label) {
-  if (!Number.isSafeInteger(value) || value < min || value > max) {
-    throw new MobileUseError(`${label} must be an integer from ${min} to ${max}.`, 'MOBILE_USE_INVALID_CONFIG')
-  }
-}
-
 function requireText(value, label) {
   const text = trimmed(value)
   if (text === '') throw new MobileUseError(`${label} must be a non-empty string.`, 'MOBILE_USE_INVALID_ARGUMENT')
   return text
-}
-
-function trimmed(value) {
-  return typeof value === 'string' ? value.trim() : ''
-}
-
-function isRecord(value) {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function stringValue(value) {
-  return typeof value === 'string' && value !== '' ? value : undefined
-}
-
-function safeErrorText(error) {
-  return error instanceof Error ? error.message : String(error)
 }
 
 function truncate(value, length) {

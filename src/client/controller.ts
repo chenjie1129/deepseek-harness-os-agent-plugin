@@ -8,13 +8,14 @@ export interface OsAgentConfig {
   maxSteps: number
   timeout: number
   systemPrompt: string
+  showScreenshots: boolean
   tosBucket: string
   tosEndpoint: string
   tosRegion: string
 }
 
 type DraftField = keyof OsAgentConfig
-type Draft = Record<DraftField, string>
+export type Draft = { [Field in DraftField]: OsAgentConfig[Field] extends boolean ? boolean : string }
 
 interface CredentialState {
   configured: boolean
@@ -56,7 +57,7 @@ export interface SnapshotStore<T> {
 
 export interface OsAgentCardFace {
   hooks: { osAgentCard: SnapshotStore<OsAgentCardState> }
-  edit(field: DraftField | 'accessKey' | 'secretKey', value: string): void
+  edit(field: DraftField | 'accessKey' | 'secretKey', value: string | boolean): void
   save(): void
   discard(): void
   reload(): void
@@ -70,6 +71,7 @@ const EMPTY_DRAFT: Draft = {
   maxSteps: '100',
   timeout: '120',
   systemPrompt: '',
+  showScreenshots: false,
   tosBucket: '',
   tosEndpoint: '',
   tosRegion: '',
@@ -125,11 +127,15 @@ export class OsAgentCardController {
     this.listeners.clear()
   }
 
-  private edit(field: DraftField | 'accessKey' | 'secretKey', value: string): void {
+  private edit(field: DraftField | 'accessKey' | 'secretKey', value: string | boolean): void {
     if (field === 'accessKey' || field === 'secretKey') {
+      if (typeof value !== 'string') return
       this.publish({ ...this.state, [field]: value, error: undefined })
       return
     }
+    if (field === 'showScreenshots') {
+      if (typeof value !== 'boolean') return
+    } else if (typeof value !== 'string') return
     this.publish({
       ...this.state,
       draft: { ...this.state.draft, [field]: value },
@@ -226,6 +232,7 @@ export function parseDraft(draft: Draft): OsAgentConfig | undefined {
     maxSteps,
     timeout,
     systemPrompt: draft.systemPrompt.trim(),
+    showScreenshots: draft.showScreenshots,
     tosBucket: tos[0] as string,
     tosEndpoint: tos[1] as string,
     tosRegion: tos[2] as string,
@@ -256,6 +263,7 @@ function toDraft(config: OsAgentConfig): Draft {
     maxSteps: String(config.maxSteps),
     timeout: String(config.timeout),
     systemPrompt: config.systemPrompt,
+    showScreenshots: config.showScreenshots === true,
     tosBucket: config.tosBucket,
     tosEndpoint: config.tosEndpoint,
     tosRegion: config.tosRegion,

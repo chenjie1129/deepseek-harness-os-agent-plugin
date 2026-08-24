@@ -14,5 +14,7 @@ describe('DeepSeek Harness plugin package', () => {
     expect(bundle).toContain('window.__ModuleLoader__.load')
     expect(bundle).toContain('id: "dsh-os-agent-plugin"')
     expect(bundle).toContain('settings.plugins.tab')
+    expect(bundle).toContain('mobile_use_get_result')
+    expect(bundle).toContain('osa-show-screenshots')
   })
 })

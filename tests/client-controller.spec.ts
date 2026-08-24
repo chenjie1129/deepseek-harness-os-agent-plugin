@@ -7,7 +7,7 @@ const VIEW = {
   writable: true,
   config: {
     productId: 'product-1', podId: 'pod-1', maxSteps: 100, timeout: 120,
-    systemPrompt: '', tosBucket: '', tosEndpoint: '', tosRegion: '',
+    systemPrompt: '', showScreenshots: false, tosBucket: '', tosEndpoint: '', tosRegion: '',
   },
   credentials: {
     accessKey: { configured: true, writable: true },
@@ -27,6 +27,7 @@ describe('OS Agent browser controller', () => {
     face.edit('maxSteps', '0')
     expect(face.hooks.osAgentCard.getSnapshot().invalid).toBe(true)
     face.edit('maxSteps', '40')
+    face.edit('showScreenshots', true)
     face.edit('accessKey', 'new-access')
     expect(face.hooks.osAgentCard.getSnapshot()).toMatchObject({ dirty: true, invalid: false })
     face.save()
@@ -35,7 +36,7 @@ describe('OS Agent browser controller', () => {
 
     const [, init] = fetchImpl.mock.calls[1]!
     const payload = JSON.parse(String(init.body))
-    expect(payload).toMatchObject({ expectedRevision: 2, accessKey: 'new-access', config: { maxSteps: 40 } })
+    expect(payload).toMatchObject({ expectedRevision: 2, accessKey: 'new-access', config: { maxSteps: 40, showScreenshots: true } })
     expect(face.hooks.osAgentCard.getSnapshot().accessKey).toBe('')
     controller.dispose()
   })
@@ -43,7 +44,7 @@ describe('OS Agent browser controller', () => {
   it('requires all TOS fields together', () => {
     expect(parseDraft({
       productId: '', podId: '', maxSteps: '100', timeout: '120', systemPrompt: '',
-      tosBucket: 'bucket', tosEndpoint: '', tosRegion: '',
+      showScreenshots: false, tosBucket: 'bucket', tosEndpoint: '', tosRegion: '',
     })).toBeUndefined()
   })
 })

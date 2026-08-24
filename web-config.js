@@ -3,7 +3,7 @@
 export const CONFIG_ENDPOINT = '/api/os-agent-plugin/config'
 const MAX_BODY_BYTES = 32 * 1024
 const CONFIG_FIELDS = [
-  'productId', 'podId', 'maxSteps', 'timeout', 'systemPrompt',
+  'productId', 'podId', 'maxSteps', 'timeout', 'systemPrompt', 'showScreenshots',
   'tosBucket', 'tosEndpoint', 'tosRegion',
 ]
 
@@ -58,6 +58,7 @@ export function normalizeConfig(value) {
     maxSteps: boundedInteger(value.maxSteps, 'maxSteps', 1, 500),
     timeout: boundedInteger(value.timeout, 'timeout', 1, 86_400),
     systemPrompt: boundedString(value.systemPrompt, 'systemPrompt', 20_000),
+    showScreenshots: optionalBoolean(value.showScreenshots, 'showScreenshots', false),
     tosBucket: boundedString(value.tosBucket, 'tosBucket', 2048),
     tosEndpoint: boundedString(value.tosEndpoint, 'tosEndpoint', 2048),
     tosRegion: boundedString(value.tosRegion, 'tosRegion', 256),
@@ -88,7 +89,10 @@ async function sendCurrent(options, res) {
     ok: true,
     revision: descriptor.revision,
     writable: options.settings.writable,
-    config: Object.fromEntries(CONFIG_FIELDS.map(field => [field, source[field]])),
+    config: Object.fromEntries(CONFIG_FIELDS.map(field => [
+      field,
+      field === 'showScreenshots' ? source[field] === true : source[field],
+    ])),
     credentials: {
       accessKey: { configured: accessKey.configured, writable: accessKey.writable },
       secretKey: { configured: secretKey.configured, writable: secretKey.writable },
@@ -140,6 +144,12 @@ function boundedInteger(value, label, min, max) {
   if (!Number.isSafeInteger(value) || value < min || value > max) {
     throw new TypeError(`${label} must be an integer from ${min} to ${max}`)
   }
+  return value
+}
+
+function optionalBoolean(value, label, fallback) {
+  if (value === undefined) return fallback
+  if (typeof value !== 'boolean') throw new TypeError(`${label} must be a boolean`)
   return value
 }
 

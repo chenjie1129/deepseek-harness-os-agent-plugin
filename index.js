@@ -5,6 +5,7 @@ import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { createScreenshotResult } from './screenshots.js'
 import {
   DEFAULT_MAX_STEPS,
   DEFAULT_TIMEOUT_SECONDS,
@@ -44,6 +45,7 @@ export const Config = z.object({
   maxSteps: z.number().step(1).min(1).max(500).default(DEFAULT_MAX_STEPS),
   timeout: z.number().step(1).min(1).max(86_400).default(DEFAULT_TIMEOUT_SECONDS),
   systemPrompt: z.string().default(''),
+  showScreenshots: z.boolean().default(false),
   tosBucket: z.string().default(''),
   tosEndpoint: z.string().default(''),
   tosRegion: z.string().default(''),
@@ -52,6 +54,42 @@ export const Config = z.object({
 const TEXT_OUTPUT = {
   schema: { type: 'string' },
   render: (_args, value) => [{ type: 'text', text: value }],
+}
+
+const IMAGE_REF_ITEM_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    attachmentId: { type: 'string', required: true },
+    mediaType: { type: 'string', enum: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'], required: true },
+    bytes: { type: 'integer', required: true },
+    width: { type: 'integer', required: true },
+    height: { type: 'integer', required: true },
+    name: { type: 'string' },
+  },
+}
+
+const SCREENSHOT_OUTPUT = {
+  schema: {
+    oneOf: [
+      { type: 'string' },
+      {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          text: { type: 'string', required: true },
+          screenshots: { type: 'array', items: IMAGE_REF_ITEM_SCHEMA, required: true },
+          screenshotsFound: { type: 'integer', required: true },
+          warnings: { type: 'array', items: { type: 'string' }, required: true },
+        },
+      },
+    ],
+  },
+  render: (_args, value) => [{ type: 'text', text: typeof value === 'string' ? value : value.text }],
+  presentationMeta: (_args, value) => ({
+    osAgentScreenshots: typeof value === 'string' ? [] : value.screenshots,
+    screenshotsFound: typeof value === 'string' ? 0 : value.screenshotsFound,
+  }),
 }
 
 /** Register live settings, the optional Web configuration endpoint, and all three tools. */
@@ -106,32 +144,32 @@ export function apply(ctx, config = {}) {
 
   ctx.tools.register(defineTool({
     name: 'mobile_use_get_status',
-    description: 'Read the current step and status of a Volcengine Mobile Use Agent run.',
+    description: 'Read the current step and status of a Volcengine Mobile Use Agent run. When screenshot display is enabled, Harness also shows screenshots returned for the step.',
     parameters: {
       run_id: { type: 'string', required: true, description: 'RunId returned by mobile_use_start_task.' },
     },
-    output: TEXT_OUTPUT,
+    output: SCREENSHOT_OUTPUT,
     isConcurrencySafe: () => true,
     async execute(args, exec) {
       const options = await resolveOptions(ctx, current(), { requireDevice: false })
       const response = await options.client.call('ListAgentRunCurrentStep', 'GET', { RunId: requireText(args.run_id, 'run_id') }, exec.signal)
-      return JSON.stringify({ action: 'ListAgentRunCurrentStep', ...response }, null, 2)
+      return formatMobileUseResponse(ctx, options.showScreenshots, { action: 'ListAgentRunCurrentStep', ...response })
     },
     presentCall: args => ({ card: 'generic', title: `Check mobile task ${truncate(args.run_id, 36)}`, kind: 'read' }),
   }))
 
   ctx.tools.register(defineTool({
     name: 'mobile_use_get_result',
-    description: 'Fetch the final result of a completed Volcengine Mobile Use Agent run.',
+    description: 'Fetch the final result of a completed Volcengine Mobile Use Agent run. When screenshot display is enabled, Harness also shows the returned task screenshots.',
     parameters: {
       run_id: { type: 'string', required: true, description: 'RunId returned by mobile_use_start_task.' },
     },
-    output: TEXT_OUTPUT,
+    output: SCREENSHOT_OUTPUT,
     isConcurrencySafe: () => true,
     async execute(args, exec) {
       const options = await resolveOptions(ctx, current(), { requireDevice: false })
       const response = await options.client.call('GetAgentResult', 'GET', { RunId: requireText(args.run_id, 'run_id') }, exec.signal)
-      return JSON.stringify({ action: 'GetAgentResult', ...response }, null, 2)
+      return formatMobileUseResponse(ctx, options.showScreenshots, { action: 'GetAgentResult', ...response })
     },
     presentCall: args => ({ card: 'generic', title: `Read mobile result ${truncate(args.run_id, 36)}`, kind: 'read' }),
   }))
@@ -171,8 +209,15 @@ export async function resolveOptions(ctx, config, behavior = {}) {
     maxSteps,
     timeout,
     systemPrompt: trimmed(config.systemPrompt),
+    showScreenshots: config.showScreenshots === true,
     tos: Object.values(tos).every(Boolean) ? tos : undefined,
   }
+}
+
+/** Keep the exact legacy string output while screenshot display is disabled. */
+export async function formatMobileUseResponse(ctx, showScreenshots, value) {
+  if (!showScreenshots) return JSON.stringify(value, null, 2)
+  return createScreenshotResult(value, ctx.get('attachments'))
 }
 
 function validateTosConfig(config) {

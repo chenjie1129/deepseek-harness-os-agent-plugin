@@ -22,6 +22,7 @@
 - **不用设备实验室。** 手机由火山引擎托管，不需要数据线、模拟器或 Appium 集群。
 - **不用改 Harness。** 以外部双端插件方式安装——不打补丁、不复制文件。
 - **自然语言进，结果出。** 三个工具覆盖完整运行生命周期。
+- **在 Harness 中查看视觉证据。** 打开可选开关后，可在状态与结果调用下方查看通过校验的步骤截图。
 - **密钥不出服务端。** AccessKey 与 Secret Key 在浏览器中只能写入，保存在 Harness credential store。
 
 ## 架构
@@ -32,6 +33,7 @@
 |---|---|
 | `index.js` | 注册设置项、system prompt 段落与三个面向模型的工具 |
 | `volcengine.js` | Mobile Use OpenAPI 的签名（HMAC-SHA256）传输层 |
+| `screenshots.js` | 清除响应中的 Base64 字段，并把通过校验的图片保存为 Harness attachments |
 | `web-config.js` + `src/client` | **设置 → 插件 → OS Agent** 配置页 |
 | `cordis.patch.yml` | 把 Node 运行时挂载进 Harness |
 
@@ -57,7 +59,7 @@ pnpm dsh --profile web
 
 ### 3. 在浏览器中配置
 
-打开 Harness 输出的网址，进入**设置 → 插件 → OS Agent**，填入 AccessKey、Secret Key、Product Id 与 PodId。其余项先保持默认。
+打开 Harness 输出的网址，进入**设置 → 插件 → OS Agent**，填入 AccessKey、Secret Key、Product Id 与 PodId。如果希望在 Harness 对话中看到视觉证据，请打开**显示任务截图**；该开关默认关闭。
 
 ### 4. 跑第一个任务
 
@@ -108,9 +110,16 @@ pnpm dsh --profile web
 | 最大步骤数 | 整数，1–500（默认 100） |
 | 超时时间 | 秒，1–86,400（默认 120） |
 | SystemPrompt | 可选，传给 Mobile Use 的额外指令 |
+| 显示任务截图 | 默认关闭；请求 Base64 步骤截图，并在状态/结果调用下方显示通过校验的 attachments |
 | TOS Bucket / Endpoint / Region | 可选，但必须同时配置；录屏时必填 |
 
 火山引擎账号必须已开通 Mobile Use Agent，并拥有操作所配置云手机的权限。需要录屏时，TOS 必须可访问。
+
+### 任务截图
+
+打开**显示任务截图**后，新任务的启动请求会设置火山引擎 `UseBase64Screenshot` 选项。插件会从状态和结果接口的响应中提取截图，从文字输出中移除 Base64 及可能包含 bearer 信息的截图 URL，再通过 Harness 校验 PNG/JPEG/WebP/GIF 字节，并保存为持久化 attachments。网页界面以可点击图库显示这些 attachments，而模型仍只接收精简文字。
+
+该开关只影响开启并保存配置后新启动的任务。截图仍受 Harness 部署的图片数量与字节限制；图片缺失、被拒绝或被截断时，文字结果会给出说明。此功能与 `screen_record` 相互独立；只有同时要求录屏时才需要 TOS。
 
 ## 兼容性
 
@@ -124,6 +133,8 @@ pnpm dsh --profile web
 | `... Product Id is missing.` / `... PodId is missing.` | 启动任务前两者都必须填写 |
 | `TOS bucket, endpoint, and region must be configured together.` | 三项全部填写，或全部留空 |
 | `Screen recording requires TOS bucket, endpoint, and region.` | 传 `screen_record: true` 前先配好 TOS |
+| 截图数量为 `0` | 打开**显示任务截图**并保存，然后新建任务；确认接口响应中包含截图字段 |
+| 截图被拒绝或截断 | 检查 Harness attachments 的图片类型、数量、字节与像素限制 |
 | `Volcengine Mobile Use API rejected the request (...)` | 检查是否已开通 Mobile Use Agent，以及密钥是否有权操作该 PodId |
 
 ## 卸载
@@ -149,6 +160,8 @@ pnpm audit --audit-level high
 
 - [火山引擎 Mobile Use Agent 产品页](https://www.volcengine.com/product/MobileUseAgent)
 - [Mobile Use OpenAPI](https://docs.volcengine.com/docs/6394/1953040?lang=zh)
+- [RunAgentTaskOneStep（`UseBase64Screenshot`）](https://www.volcengine.com/docs/6394/2105943)
+- [GetAgentResult](https://www.volcengine.com/docs/6394/1953054?lang=zh)
 - [Python 示例](https://github.com/volcengine/vePhone/blob/main/Quick%20Start/MobileUse/openapi_sample/python_openapi_sample.py)
 
 ## 许可

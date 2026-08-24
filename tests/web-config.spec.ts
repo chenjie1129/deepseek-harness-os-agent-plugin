@@ -4,12 +4,13 @@ import { createConfigRoute, normalizeConfig } from '../web-config.js'
 
 const BASE_CONFIG = {
   productId: 'product-1', podId: 'pod-1', maxSteps: 100, timeout: 120,
-  systemPrompt: '', tosBucket: '', tosEndpoint: '', tosRegion: '',
+  systemPrompt: '', showScreenshots: false, tosBucket: '', tosEndpoint: '', tosRegion: '',
 }
 
 describe('plugin-owned configuration endpoint', () => {
   it('rejects incomplete TOS and invalid numeric ranges', () => {
     expect(() => normalizeConfig({ ...BASE_CONFIG, maxSteps: 0 })).toThrow(/maxSteps/)
+    expect(() => normalizeConfig({ ...BASE_CONFIG, showScreenshots: 'true' })).toThrow(/showScreenshots/)
     expect(() => normalizeConfig({ ...BASE_CONFIG, tosBucket: 'bucket' })).toThrow(/configured together/)
   })
 
@@ -33,11 +34,14 @@ describe('plugin-owned configuration endpoint', () => {
     const response = createResponse()
     await route(createRequest('PUT', {
       expectedRevision: 3,
-      config: { ...BASE_CONFIG, maxSteps: 40, systemPrompt: 'Be careful' },
+      config: { ...BASE_CONFIG, maxSteps: 40, systemPrompt: 'Be careful', showScreenshots: true },
       accessKey: 'new-access', secretKey: 'new-secret',
     }), response)
     expect(response.status).toBe(200)
     expect(harness.mutate).toHaveBeenCalledOnce()
+    expect(harness.mutate).toHaveBeenCalledWith('os-agent', expect.arrayContaining([
+      { op: 'set', path: ['showScreenshots'], value: true },
+    ]), 3)
     expect(harness.set).toHaveBeenCalledWith('VOLC_ACCESSKEY', 'new-access')
     expect(harness.set).toHaveBeenCalledWith('VOLC_SECRETKEY', 'new-secret')
     expect(response.body).not.toContain('new-access')

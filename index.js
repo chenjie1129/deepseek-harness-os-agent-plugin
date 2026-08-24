@@ -5,7 +5,8 @@ import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { createScreenshotResult } from './screenshots.js'
+import { createScreenshotPresentationMeta, createScreenshotResult, renderScreenshotOutput } from './screenshots.js'
+import { isTerminalRunStatus, readRunId, RunScreenshotMonitor } from './run-screenshot-monitor.js'
 import {
   DEFAULT_MAX_STEPS,
   DEFAULT_TIMEOUT_SECONDS,
@@ -69,6 +70,15 @@ const IMAGE_REF_ITEM_SCHEMA = {
   },
 }
 
+const SCREENSHOT_PREVIEW_ITEM_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    attachmentId: { type: 'string', required: true },
+    dataUrl: { type: 'string', required: true },
+  },
+}
+
 const SCREENSHOT_OUTPUT = {
   schema: {
     oneOf: [
@@ -79,22 +89,22 @@ const SCREENSHOT_OUTPUT = {
         properties: {
           text: { type: 'string', required: true },
           screenshots: { type: 'array', items: IMAGE_REF_ITEM_SCHEMA, required: true },
+          screenshotPreviews: { type: 'array', items: SCREENSHOT_PREVIEW_ITEM_SCHEMA, required: true },
           screenshotsFound: { type: 'integer', required: true },
           warnings: { type: 'array', items: { type: 'string' }, required: true },
         },
       },
     ],
   },
-  render: (_args, value) => [{ type: 'text', text: typeof value === 'string' ? value : value.text }],
-  presentationMeta: (_args, value) => ({
-    osAgentScreenshots: typeof value === 'string' ? [] : value.screenshots,
-    screenshotsFound: typeof value === 'string' ? 0 : value.screenshotsFound,
-  }),
+  render: (_args, value) => renderScreenshotOutput(value),
+  presentationMeta: (_args, value) => createScreenshotPresentationMeta(value),
 }
 
 /** Register live settings, the optional Web configuration endpoint, and all three tools. */
 export function apply(ctx, config = {}) {
   let current = () => config
+  const screenshotMonitor = new RunScreenshotMonitor({ attachments: () => ctx.get('attachments') })
+  ctx.effect(() => () => screenshotMonitor.dispose(), 'os-agent-plugin: screenshot monitor')
   installSettingsSection(ctx, OS_AGENT_SETTINGS_NAMESPACE, Config, config, {
     setSource: source => { current = source },
     onChange: () => {},
@@ -137,6 +147,10 @@ export function apply(ctx, config = {}) {
       const options = await resolveOptions(ctx, current())
       const body = buildRunAgentTaskOneStepBody(options, args)
       const response = await options.client.call('RunAgentTaskOneStep', 'POST', body, exec.signal)
+      const runId = readRunId(response.result)
+      if (options.showScreenshots && runId !== undefined) {
+        await screenshotMonitor.start({ runId, client: options.client, timeoutSeconds: options.timeout })
+      }
       return JSON.stringify({ action: 'RunAgentTaskOneStep', ...response }, null, 2)
     },
     presentCall: args => ({ card: 'generic', title: `Start mobile task: ${truncate(args.task, 72)}`, kind: 'execute' }),
@@ -152,8 +166,12 @@ export function apply(ctx, config = {}) {
     isConcurrencySafe: () => true,
     async execute(args, exec) {
       const options = await resolveOptions(ctx, current(), { requireDevice: false })
-      const response = await options.client.call('ListAgentRunCurrentStep', 'GET', { RunId: requireText(args.run_id, 'run_id') }, exec.signal)
-      return formatMobileUseResponse(ctx, options.showScreenshots, { action: 'ListAgentRunCurrentStep', ...response })
+      const runId = requireText(args.run_id, 'run_id')
+      const response = await options.client.call('ListAgentRunCurrentStep', 'GET', { RunId: runId }, exec.signal)
+      const value = { action: 'ListAgentRunCurrentStep', ...response }
+      const monitored = await screenshotMonitor.format(runId, value, options.showScreenshots)
+      if (isTerminalRunStatus(value)) await screenshotMonitor.stopPolling(runId)
+      return monitored ?? formatMobileUseResponse(ctx, false, value)
     },
     presentCall: args => ({ card: 'generic', title: `Check mobile task ${truncate(args.run_id, 36)}`, kind: 'read' }),
   }))
@@ -168,8 +186,12 @@ export function apply(ctx, config = {}) {
     isConcurrencySafe: () => true,
     async execute(args, exec) {
       const options = await resolveOptions(ctx, current(), { requireDevice: false })
-      const response = await options.client.call('GetAgentResult', 'GET', { RunId: requireText(args.run_id, 'run_id') }, exec.signal)
-      return formatMobileUseResponse(ctx, options.showScreenshots, { action: 'GetAgentResult', ...response })
+      const runId = requireText(args.run_id, 'run_id')
+      const response = await options.client.call('GetAgentResult', 'GET', { RunId: runId }, exec.signal)
+      const value = { action: 'GetAgentResult', ...response }
+      const monitored = await screenshotMonitor.format(runId, value, options.showScreenshots)
+      await screenshotMonitor.stopPolling(runId)
+      return monitored ?? formatMobileUseResponse(ctx, false, value)
     },
     presentCall: args => ({ card: 'generic', title: `Read mobile result ${truncate(args.run_id, 36)}`, kind: 'read' }),
   }))

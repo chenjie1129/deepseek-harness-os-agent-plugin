@@ -110,14 +110,14 @@ Configured under **Settings → Plugins → OS Agent**.
 | Max steps | Integer, 1–500 (default 100) |
 | Timeout | Seconds, 1–86,400 (default 120) |
 | SystemPrompt | Optional extra instruction passed to Mobile Use |
-| Show task screenshots | Off by default; requests base64 step screenshots and shows validated attachments below status/result calls |
+| Show task screenshots | Off by default; captures step screenshots and shows validated attachments below status/result calls |
 | TOS bucket / endpoint / region | Optional, but all three must be set together; required for screen recording |
 
 The Volcengine account must have Mobile Use Agent enabled and permission to operate the configured cloud phone. TOS must be accessible when screen recording is requested.
 
 ### Task screenshots
 
-When **Show task screenshots** is on, new start requests set Volcengine's `UseBase64Screenshot` option. The plugin extracts screenshots returned by status and result APIs, removes the base64 and bearer-style screenshot URLs from text output, validates PNG/JPEG/WebP/GIF bytes through Harness, and stores them as durable attachments. The Web UI displays those attachments in a clickable gallery while the model continues to receive concise text.
+When **Show task screenshots** is on, new start requests set Volcengine's `UseBase64Screenshot` option. The plugin polls screenshot-bearing intermediate steps in the background, accumulates and deduplicates them for the run, removes base64 and signed screenshot URLs from text output, validates PNG/JPEG/WebP/GIF bytes through Harness, and stores them as durable attachments. When Volcengine returns a signed download URL instead of inline base64, the plugin downloads it server-side only over HTTPS from an allowlisted `volces.com` host, without forwarding credentials or the URL to the model. A bounded copy of validated preview data is persisted only in Tool presentation metadata for the clickable Web UI gallery; the model-facing Tool result remains text-only, so text-only DeepSeek adapters keep working. Screenshot capture therefore does not depend on the model's own status-poll timing.
 
 The switch affects tasks started after it is enabled. Harness deployment image-count and byte limits still apply; the text result reports when images were absent, rejected, or capped. This feature is independent of `screen_record` and does not require TOS unless recording is also requested.
 
@@ -133,7 +133,7 @@ Integration-tested with DeepSeek Harness `0.1.1-rc.2`, using extension surfaces 
 | `... Product Id is missing.` / `... PodId is missing.` | Both are required before starting a task |
 | `TOS bucket, endpoint, and region must be configured together.` | Set all three, or clear all three |
 | `Screen recording requires TOS bucket, endpoint, and region.` | Configure TOS before passing `screen_record: true` |
-| Screenshot count is `0` | Enable **Show task screenshots**, save, then start a new task; confirm that the API response contains screenshot fields |
+| Screenshot count is `0` | Enable **Show task screenshots**, save, then start a new task; keep Harness running until the task completes and confirm Volcengine returned at least one screenshot-bearing step |
 | A screenshot was rejected or capped | Check the Harness attachment image type, count, byte, and pixel limits |
 | `Volcengine Mobile Use API rejected the request (...)` | Check that Mobile Use Agent is enabled and the key can operate that PodId |
 

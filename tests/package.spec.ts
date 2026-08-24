@@ -7,6 +7,7 @@ describe('DeepSeek Harness plugin package', () => {
     expect(pkg.dsh.bundle.patch).toBe('./cordis.patch.yml')
     expect(pkg.dsh.client.platform).toBe('web')
     expect(pkg.exports['./client']).toBe('./lib/client.js')
+    expect(pkg.files).toContain('run-screenshot-monitor.js')
   })
 
   it('ships a client bundle registered under the package id', async () => {
@@ -23,4 +24,5 @@ describe('DeepSeek Harness plugin package', () => {
     expect(workflow).toContain('steps.plugin-package.outputs.version')
     expect(workflow).not.toMatch(/dsh-os-agent-plugin-\d+\.\d+\.\d+\.tgz/)
   })
+
 })

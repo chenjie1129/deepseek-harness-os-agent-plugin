@@ -22,6 +22,7 @@ Agent:  mobile_use_start_task  → RunId: run-8f2c...
 - **No device lab.** Volcengine hosts the phone; you need no USB cable, emulator, or Appium grid.
 - **No Harness fork.** Installs as an external dual-face plugin — no patch, no vendored files.
 - **Natural language in, result out.** Three tools cover the whole run lifecycle.
+- **Visual evidence in Harness.** An opt-in switch shows validated step screenshots beneath status and result calls.
 - **Credentials stay server-side.** AccessKey and Secret Key are write-only in the browser and live in the Harness credential store.
 
 ## Architecture
@@ -32,6 +33,7 @@ Agent:  mobile_use_start_task  → RunId: run-8f2c...
 |---|---|
 | `index.js` | Registers settings, the system-prompt section, and the three model-facing tools |
 | `volcengine.js` | Signed (HMAC-SHA256) transport for the Mobile Use OpenAPI |
+| `screenshots.js` | Redacts base64 response fields and persists validated images as Harness attachments |
 | `web-config.js` + `src/client` | **Settings → Plugins → OS Agent** configuration tab |
 | `cordis.patch.yml` | Mounts the Node runtime into Harness |
 
@@ -57,7 +59,7 @@ pnpm dsh --profile web
 
 ### 3. Configure it in the browser
 
-Open the URL printed by Harness, then go to **Settings → Plugins → OS Agent** and fill in AccessKey, Secret Key, Product Id, and PodId. Leave everything else at its default for now.
+Open the URL printed by Harness, then go to **Settings → Plugins → OS Agent** and fill in AccessKey, Secret Key, Product Id, and PodId. Turn on **Show task screenshots** if you want visual evidence in the Harness conversation; it is off by default.
 
 ### 4. Run your first task
 
@@ -108,9 +110,16 @@ Configured under **Settings → Plugins → OS Agent**.
 | Max steps | Integer, 1–500 (default 100) |
 | Timeout | Seconds, 1–86,400 (default 120) |
 | SystemPrompt | Optional extra instruction passed to Mobile Use |
+| Show task screenshots | Off by default; requests base64 step screenshots and shows validated attachments below status/result calls |
 | TOS bucket / endpoint / region | Optional, but all three must be set together; required for screen recording |
 
 The Volcengine account must have Mobile Use Agent enabled and permission to operate the configured cloud phone. TOS must be accessible when screen recording is requested.
+
+### Task screenshots
+
+When **Show task screenshots** is on, new start requests set Volcengine's `UseBase64Screenshot` option. The plugin extracts screenshots returned by status and result APIs, removes the base64 and bearer-style screenshot URLs from text output, validates PNG/JPEG/WebP/GIF bytes through Harness, and stores them as durable attachments. The Web UI displays those attachments in a clickable gallery while the model continues to receive concise text.
+
+The switch affects tasks started after it is enabled. Harness deployment image-count and byte limits still apply; the text result reports when images were absent, rejected, or capped. This feature is independent of `screen_record` and does not require TOS unless recording is also requested.
 
 ## Compatibility
 
@@ -124,6 +133,8 @@ Integration-tested with DeepSeek Harness `0.1.1-rc.2`, using extension surfaces 
 | `... Product Id is missing.` / `... PodId is missing.` | Both are required before starting a task |
 | `TOS bucket, endpoint, and region must be configured together.` | Set all three, or clear all three |
 | `Screen recording requires TOS bucket, endpoint, and region.` | Configure TOS before passing `screen_record: true` |
+| Screenshot count is `0` | Enable **Show task screenshots**, save, then start a new task; confirm that the API response contains screenshot fields |
+| A screenshot was rejected or capped | Check the Harness attachment image type, count, byte, and pixel limits |
 | `Volcengine Mobile Use API rejected the request (...)` | Check that Mobile Use Agent is enabled and the key can operate that PodId |
 
 ## Uninstall
@@ -149,6 +160,8 @@ The committed `lib/client.js` is required for Git installation. GitHub Actions r
 
 - [Volcengine Mobile Use Agent product page](https://www.volcengine.com/product/MobileUseAgent)
 - [Mobile Use OpenAPI](https://docs.volcengine.com/docs/6394/1953040?lang=zh)
+- [RunAgentTaskOneStep (`UseBase64Screenshot`)](https://www.volcengine.com/docs/6394/2105943)
+- [GetAgentResult](https://www.volcengine.com/docs/6394/1953054?lang=zh)
 - [Python sample](https://github.com/volcengine/vePhone/blob/main/Quick%20Start/MobileUse/openapi_sample/python_openapi_sample.py)
 
 ## License

@@ -14,5 +14,13 @@ describe('DeepSeek Harness plugin package', () => {
     expect(bundle).toContain('window.__ModuleLoader__.load')
     expect(bundle).toContain('id: "dsh-os-agent-plugin"')
     expect(bundle).toContain('settings.plugins.tab')
+    expect(bundle).toContain('mobile_use_get_result')
+    expect(bundle).toContain('osa-show-screenshots')
+  })
+
+  it('installs the current package version in the Harness integration workflow', async () => {
+    const workflow = await readFile(new URL('../.github/workflows/verify.yml', import.meta.url), 'utf8')
+    expect(workflow).toContain('steps.plugin-package.outputs.version')
+    expect(workflow).not.toMatch(/dsh-os-agent-plugin-\d+\.\d+\.\d+\.tgz/)
   })
 })

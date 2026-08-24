@@ -77,4 +77,15 @@ describe('Volcengine Mobile Use client', () => {
       systemPrompt: '', tos: undefined,
     }, { task: 'Open Settings', screen_record: true })).toThrow(/requires TOS/i)
   })
+
+  it('requests base64 screenshots only when Web UI display is enabled', () => {
+    const base = {
+      productId: 'product-1', podId: 'pod-1', maxSteps: 100, timeout: 120,
+      systemPrompt: '', tos: undefined,
+    }
+    expect(buildRunAgentTaskOneStepBody({ ...base, showScreenshots: true }, { task: 'Open Settings' }))
+      .toMatchObject({ UseBase64Screenshot: true })
+    expect(buildRunAgentTaskOneStepBody({ ...base, showScreenshots: false }, { task: 'Open Settings' }))
+      .not.toHaveProperty('UseBase64Screenshot')
+  })
 })

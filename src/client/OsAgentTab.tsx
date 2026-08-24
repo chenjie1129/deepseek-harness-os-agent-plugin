@@ -5,7 +5,7 @@ import type { OsAgentCardFace, OsAgentCardState } from './controller.ts'
 
 type Translator = (key: string) => string
 
-export interface OsAgentTabProps extends OsAgentCardFace {
+export interface OsAgentTabProps extends Omit<OsAgentCardFace, 'hooks'> {
   t: Translator
   useOsAgentCard<T>(selector: (state: OsAgentCardState) => T): T
 }
@@ -57,6 +57,14 @@ export function OsAgentTab(props: OsAgentTabProps) {
         <Field id="osa-max-steps" label={props.t('maxSteps')} hint={props.t('maxStepsHint')} value={state.draft.maxSteps} disabled={disabled} inputMode="numeric" onChange={value => { props.edit('maxSteps', value) }} />
         <Field id="osa-timeout" label={props.t('timeout')} hint={props.t('timeoutHint')} value={state.draft.timeout} disabled={disabled} inputMode="numeric" onChange={value => { props.edit('timeout', value) }} />
         <Field id="osa-system-prompt" label={props.t('systemPrompt')} hint={props.t('systemPromptHint')} value={state.draft.systemPrompt} disabled={disabled} multiline onChange={value => { props.edit('systemPrompt', value) }} />
+        <SwitchField
+          id="osa-show-screenshots"
+          label={props.t('showScreenshots')}
+          hint={props.t('showScreenshotsHint')}
+          checked={state.draft.showScreenshots}
+          disabled={disabled}
+          onChange={value => { props.edit('showScreenshots', value) }}
+        />
         <Field id="osa-tos-bucket" label={props.t('tosBucket')} hint={props.t('tosGroupHint')} value={state.draft.tosBucket} disabled={disabled} onChange={value => { props.edit('tosBucket', value) }} />
         <Field id="osa-tos-endpoint" label={props.t('tosEndpoint')} hint={props.t('tosEndpointHint')} value={state.draft.tosEndpoint} disabled={disabled} onChange={value => { props.edit('tosEndpoint', value) }} />
         <Field id="osa-tos-region" label={props.t('tosRegion')} hint={props.t('tosRegionHint')} value={state.draft.tosRegion} disabled={disabled} onChange={value => { props.edit('tosRegion', value) }} />
@@ -92,6 +100,35 @@ function Field(props: FieldProps) {
         ? <textarea id={props.id} value={props.value} disabled={props.disabled} onChange={change} />
         : <input id={props.id} value={props.value} disabled={props.disabled} inputMode={props.inputMode} onChange={change} />}
       <p>{props.hint}</p>
+    </div>
+  )
+}
+
+function SwitchField(props: {
+  id: string
+  label: string
+  hint: string
+  checked: boolean
+  disabled: boolean
+  onChange(value: boolean): void
+}) {
+  return (
+    <div className="osa-field osa-wide osa-switch-field">
+      <div className="osa-switch-row">
+        <div>
+          <label htmlFor={props.id}>{props.label}</label>
+          <p id={`${props.id}-hint`}>{props.hint}</p>
+        </div>
+        <input
+          id={props.id}
+          type="checkbox"
+          role="switch"
+          aria-describedby={`${props.id}-hint`}
+          checked={props.checked}
+          disabled={props.disabled}
+          onChange={(event) => { props.onChange(event.currentTarget.checked) }}
+        />
+      </div>
     </div>
   )
 }

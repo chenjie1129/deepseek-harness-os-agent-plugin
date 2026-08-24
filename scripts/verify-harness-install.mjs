@@ -44,6 +44,7 @@ try {
   assert(configResponse.status === 200, `Configuration request returned ${configResponse.status}`)
   const payload = await configResponse.json()
   assert(payload.ok === true, 'Configuration endpoint did not return ok=true')
+  assert(payload.config.showScreenshots === false, 'Screenshot display must default to off')
   assert(!Object.hasOwn(payload.config, 'accessKey'), 'Configuration endpoint exposed AccessKey')
   assert(!Object.hasOwn(payload.config, 'secretKey'), 'Configuration endpoint exposed Secret Key')
 
@@ -52,6 +53,7 @@ try {
   const client = await clientResponse.text()
   assert(client.includes('window.__ModuleLoader__.load'), 'Client module is not a Harness module')
   assert(client.includes('settings.plugins.tab'), 'Client module does not register the settings tab')
+  assert(client.includes('mobile_use_get_result'), 'Client module does not register the screenshot result card')
 
   process.stdout.write(`${JSON.stringify({
     ok: true,
@@ -59,6 +61,8 @@ try {
     pluginInBootManifest: true,
     configEndpointProtected: true,
     credentialsRedacted: true,
+    screenshotDisplayDefaultOff: true,
+    screenshotResultCardRegistered: true,
     clientModuleServed: true,
   }, null, 2)}\n`)
 } finally {

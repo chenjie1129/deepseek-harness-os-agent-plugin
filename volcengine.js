@@ -150,6 +150,7 @@ export function buildRunAgentTaskOneStepBody(options, args) {
           TosEndpoint: options.tos.endpoint,
           TosRegion: options.tos.region,
         }),
+    ...(options.showScreenshots === true ? { UseBase64Screenshot: true } : {}),
     ...(args.screen_record === true ? { IsScreenRecord: true } : {}),
   }
 }

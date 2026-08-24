@@ -17,10 +17,18 @@ export type OsAgentResultCardProps = ToolCallViewProps & {
 /** Render task text and any persisted screenshots without exposing base64 data. */
 export function OsAgentResultCard(props: OsAgentResultCardProps) {
   const result = settledResult(props.block)
-  const screenshots = result === undefined ? [] : screenshotsFromMeta(result.meta)
+  const screenshots = useMemo(
+    () => (result === undefined ? [] : screenshotsFromMeta(result.meta)),
+    [result],
+  )
+  const previewById = useMemo(
+    () => new Map(screenshots.map(screenshot => [String(screenshot.attachment.attachmentId), screenshot.dataUrl])),
+    [screenshots],
+  )
   const load = useCallback(
-    (attachment: ImageAttachmentRef) => props.loadOsAgentImage(props.sessionId, attachment),
-    [props.loadOsAgentImage, props.sessionId],
+    (attachment: ImageAttachmentRef) => Promise.resolve(previewById.get(String(attachment.attachmentId)))
+      .then(dataUrl => dataUrl ?? props.loadOsAgentImage(props.sessionId, attachment)),
+    [previewById, props.loadOsAgentImage, props.sessionId],
   )
   const labels = useMemo(() => ({
     image: props.t('screenshot'),
@@ -43,7 +51,7 @@ export function OsAgentResultCard(props: OsAgentResultCardProps) {
       </div>
       {screenshots.length > 0 ? (
         <div className="osa-tool-result-images">
-          <ImageGallery images={screenshots.map(attachment => ({ attachment }))} load={load} align="start" labels={labels} />
+          <ImageGallery images={screenshots.map(screenshot => ({ attachment: screenshot.attachment }))} load={load} align="start" labels={labels} />
         </div>
       ) : null}
       {result !== undefined ? (

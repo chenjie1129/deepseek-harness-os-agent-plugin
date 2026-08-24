@@ -1,8 +1,13 @@
 /** Extract, redact, and persist Volcengine Mobile Use task screenshots. */
 
+import { createHash } from 'node:crypto'
+
 const DEFAULT_MAX_IMAGE_BYTES = 8 * 1024 * 1024
 const DEFAULT_MAX_IMAGES = 20
 const DEFAULT_MAX_TOTAL_BYTES = 20 * 1024 * 1024
+const DEFAULT_MAX_PRESENTATION_BYTES = 5 * 1024 * 1024
+const DEFAULT_MAX_PRESENTATION_IMAGES = 10
+const DEFAULT_REMOTE_TIMEOUT_MS = 15_000
 const SCREENSHOT_KEY = /(?:screen[\s_-]*shot|image|base64)/i
 const BASE64_BODY = /^[A-Za-z0-9+/]*={0,2}$/
 
@@ -11,62 +16,140 @@ const BASE64_BODY = /^[A-Za-z0-9+/]*={0,2}$/
  * Screenshot bytes are always removed from the text projection, including when
  * an attachment cannot be saved.
  */
-export async function createScreenshotResult(value, attachments) {
+export async function createScreenshotResult(value, attachments, options) {
+  return createScreenshotCollector(attachments, options).ingest(value)
+}
+
+/** Keep the model-facing tool result text-only; screenshot bytes live only in presentation metadata. */
+export function renderScreenshotOutput(value) {
+  if (typeof value === 'string') return [{ type: 'text', text: value }]
+  return [{ type: 'text', text: value.text }]
+}
+
+/** Build the bounded, UI-only projection persisted with the Tool result event. */
+export function createScreenshotPresentationMeta(value) {
+  if (typeof value === 'string') return { osAgentScreenshots: [], screenshotsFound: 0 }
+  const previews = new Map(value.screenshotPreviews.map(preview => [preview.attachmentId, preview.dataUrl]))
+  return {
+    osAgentScreenshots: value.screenshots.flatMap(attachment => {
+      const dataUrl = previews.get(String(attachment.attachmentId))
+      return dataUrl === undefined ? [] : [{ ...attachment, dataUrl }]
+    }),
+    screenshotsFound: value.screenshotsFound,
+  }
+}
+
+/**
+ * Create one run-scoped collector. Reusing it across status calls makes image
+ * capture independent of whichever individual response the model happens to
+ * inspect, while retaining only hashes and durable attachment references.
+ */
+export function createScreenshotCollector(attachments, options = {}) {
   const limits = imageLimits(attachments)
-  const state = {
-    candidates: [],
+  const aggregate = {
     seen: new Set(),
+    seenRemote: new Set(),
+    seenRejected: new Set(),
+    screenshots: [],
+    screenshotPreviews: [],
+    presentationBytes: 0,
     found: 0,
     invalid: 0,
     oversized: 0,
+    remoteFailures: 0,
+    saveFailures: 0,
+    admittedImages: 0,
+    admittedBytes: 0,
+    extraWarnings: new Set(),
+  }
+  let queue = Promise.resolve()
+
+  return {
+    ingest(value) {
+      const result = queue.then(() => projectScreenshotResponse(value, attachments, limits, aggregate, options))
+      queue = result.then(() => undefined, () => undefined)
+      return result
+    },
+    warn(message) {
+      if (typeof message === 'string' && message.trim() !== '') aggregate.extraWarnings.add(message.trim())
+    },
+  }
+}
+
+async function projectScreenshotResponse(value, attachments, limits, aggregate, options) {
+  const remainingImages = Math.max(0, limits.maxImages - aggregate.admittedImages)
+  const remainingBytes = Math.max(0, limits.maxTotalBytes - aggregate.admittedBytes)
+  const state = {
+    candidates: [],
+    remoteCandidates: [],
+    seen: aggregate.seen,
+    seenRemote: aggregate.seenRemote,
+    seenRejected: aggregate.seenRejected,
+    found: 0,
+    invalid: 0,
+    oversized: 0,
+    remoteFailures: 0,
     candidateBytes: 0,
     maxImageBytes: limits.maxImageBytes,
-    maxImages: limits.maxImages,
-    maxTotalBytes: limits.maxTotalBytes,
+    maxImages: remainingImages,
+    maxTotalBytes: remainingBytes,
     mediaTypes: limits.mediaTypes,
   }
   const redacted = redactScreenshots(value, false, state, 0)
-  const admitted = []
-  let admittedBytes = 0
-  for (const candidate of state.candidates) {
-    if (admitted.length >= limits.maxImages || admittedBytes + candidate.data.byteLength > limits.maxTotalBytes) {
-      state.oversized += 1
-      continue
-    }
-    admitted.push(candidate)
-    admittedBytes += candidate.data.byteLength
-  }
+  await downloadRemoteScreenshots(state, attachments, options)
+  aggregate.found += state.found
+  aggregate.invalid += state.invalid
+  aggregate.oversized += state.oversized
+  aggregate.remoteFailures += state.remoteFailures
 
-  const screenshots = attachments === undefined
+  const firstImageNumber = aggregate.admittedImages + 1
+  aggregate.admittedImages += state.candidates.length
+  aggregate.admittedBytes += state.candidates.reduce((total, candidate) => total + candidate.data.byteLength, 0)
+  const saved = attachments === undefined
     ? []
-    : (await Promise.all(admitted.map(async (candidate, index) => {
+    : (await Promise.all(state.candidates.map(async (candidate, index) => {
         try {
-          return await attachments.saveImage({
+          const attachment = await attachments.saveImage({
             data: candidate.data,
             mediaType: candidate.mediaType,
-            name: `mobile-use-step-${String(index + 1)}.${extension(candidate.mediaType)}`,
+            name: `mobile-use-step-${String(firstImageNumber + index)}.${extension(candidate.mediaType)}`,
           })
+          return { attachment, candidate }
         } catch {
           return undefined
         }
       }))).filter(Boolean)
+  for (const item of saved) {
+    aggregate.screenshots.push(item.attachment)
+    if (aggregate.screenshotPreviews.length < DEFAULT_MAX_PRESENTATION_IMAGES
+      && aggregate.presentationBytes + item.candidate.data.byteLength <= DEFAULT_MAX_PRESENTATION_BYTES) {
+      aggregate.screenshotPreviews.push({
+        attachmentId: String(item.attachment.attachmentId),
+        dataUrl: `data:${item.candidate.mediaType};base64,${item.candidate.data.toString('base64')}`,
+      })
+      aggregate.presentationBytes += item.candidate.data.byteLength
+    }
+  }
+  if (attachments !== undefined) aggregate.saveFailures += state.candidates.length - saved.length
 
   const warnings = []
-  if (attachments === undefined && state.found > 0) {
+  if (attachments === undefined && aggregate.found > 0) {
     warnings.push('Harness attachment storage is unavailable; screenshots could not be displayed.')
   }
-  const saveFailures = attachments === undefined ? 0 : admitted.length - screenshots.length
-  if (saveFailures > 0) warnings.push(`${saveFailures} screenshot(s) failed Harness image validation or storage.`)
-  if (state.oversized > 0) warnings.push(`${state.oversized} screenshot(s) exceeded the Harness count or byte limits.`)
-  if (state.invalid > 0) warnings.push(`${state.invalid} screenshot field(s) were not a supported PNG, JPEG, WebP, or GIF image.`)
+  if (aggregate.saveFailures > 0) warnings.push(`${aggregate.saveFailures} screenshot(s) failed Harness image validation or storage.`)
+  if (aggregate.oversized > 0) warnings.push(`${aggregate.oversized} screenshot(s) exceeded the Harness count or byte limits.`)
+  if (aggregate.invalid > 0) warnings.push(`${aggregate.invalid} screenshot field(s) were not a supported PNG, JPEG, WebP, or GIF image.`)
+  if (aggregate.remoteFailures > 0) warnings.push(`${aggregate.remoteFailures} Volcengine screenshot URL(s) could not be downloaded safely.`)
+  warnings.push(...aggregate.extraWarnings)
 
-  const summary = state.found === 0
-    ? 'No screenshots were present in the Volcengine response.'
-    : `Harness stored ${screenshots.length} of ${state.found} screenshot(s) for Web UI display.`
+  const summary = aggregate.found === 0
+    ? 'No screenshots have been captured for this run yet.'
+    : `Harness stored ${aggregate.screenshots.length} of ${aggregate.found} screenshot(s) captured for this run.`
   return {
     text: `${JSON.stringify(redacted, null, 2)}\n\n${summary}${warnings.length === 0 ? '' : `\n${warnings.join('\n')}`}`,
-    screenshots,
-    screenshotsFound: state.found,
+    screenshots: [...aggregate.screenshots],
+    screenshotPreviews: [...aggregate.screenshotPreviews],
+    screenshotsFound: aggregate.found,
     warnings,
   }
 }
@@ -94,31 +177,34 @@ function redactScreenshots(value, screenshotContext, state, depth) {
 
   const parsed = parseEncodedImage(value, state.maxImageBytes)
   if (parsed.kind === 'image') {
-    if (!state.seen.has(parsed.identity)) {
-      state.seen.add(parsed.identity)
-      state.found += 1
-      if (!state.mediaTypes.includes(parsed.mediaType)) {
-        state.invalid += 1
-      } else if (parsed.data === undefined
-        || state.candidates.length >= state.maxImages
-        || state.candidateBytes + parsed.data.byteLength > state.maxTotalBytes) {
-        state.oversized += 1
-      } else {
-        state.candidates.push(parsed)
-        state.candidateBytes += parsed.data.byteLength
-      }
-    }
+    admitCandidate(parsed, state)
     return parsed.data === undefined
       ? '[screenshot omitted: exceeds Harness image limit]'
       : '[screenshot stored separately by Harness]'
   }
   if (parsed.kind === 'invalid') {
-    state.invalid += 1
+    const identity = digest(value)
+    if (!state.seenRejected.has(identity)) {
+      state.seenRejected.add(identity)
+      state.invalid += 1
+    }
     return '[screenshot omitted: invalid or unsupported image data]'
   }
   if (/^https?:\/\//i.test(value)) {
-    state.invalid += 1
-    return '[remote screenshot URL omitted; enable base64 screenshots for safe display]'
+    const remote = parseRemoteScreenshotUrl(value)
+    if (remote !== undefined) {
+      if (!state.seenRemote.has(remote.identity)) {
+        state.seenRemote.add(remote.identity)
+        state.remoteCandidates.push(remote)
+      }
+      return '[Volcengine screenshot URL omitted from text output]'
+    }
+    const identity = digest(value)
+    if (!state.seenRejected.has(identity)) {
+      state.seenRejected.add(identity)
+      state.invalid += 1
+    }
+    return '[remote screenshot URL omitted: host is not allowed]'
   }
   return value
 }
@@ -143,10 +229,103 @@ function parseEncodedImage(value, maxImageBytes) {
   }
   const estimatedBytes = Math.floor((encoded.length * 3) / 4) - paddingLength(encoded)
   if (estimatedBytes > maxImageBytes) {
-    return { kind: 'image', identity: encoded, mediaType, data: undefined }
+    return { kind: 'image', identity: digest(encoded), mediaType, data: undefined }
   }
   const data = Buffer.from(encoded, 'base64')
-  return { kind: 'image', identity: encoded, mediaType, data }
+  return { kind: 'image', identity: digest(data), mediaType, data }
+}
+
+function admitCandidate(candidate, state) {
+  if (state.seen.has(candidate.identity)) return
+  state.seen.add(candidate.identity)
+  state.found += 1
+  if (!state.mediaTypes.includes(candidate.mediaType)) {
+    state.invalid += 1
+  } else if (candidate.data === undefined
+    || state.candidates.length >= state.maxImages
+    || state.candidateBytes + candidate.data.byteLength > state.maxTotalBytes) {
+    state.oversized += 1
+  } else {
+    state.candidates.push(candidate)
+    state.candidateBytes += candidate.data.byteLength
+  }
+}
+
+async function downloadRemoteScreenshots(state, attachments, options) {
+  if (state.remoteCandidates.length === 0) return
+  if (attachments === undefined) {
+    state.remoteFailures += state.remoteCandidates.length
+    return
+  }
+  const fetchImpl = options.fetchImpl ?? globalThis.fetch
+  const timeoutMs = positiveInteger(options.remoteTimeoutMs) ?? DEFAULT_REMOTE_TIMEOUT_MS
+  for (const candidate of state.remoteCandidates) {
+    try {
+      const downloaded = await downloadRemoteScreenshot(fetchImpl, candidate.url, state.maxImageBytes, timeoutMs)
+      if (downloaded.kind === 'oversized') {
+        state.oversized += 1
+      } else if (downloaded.kind === 'invalid') {
+        state.invalid += 1
+      } else {
+        admitCandidate(downloaded, state)
+      }
+    } catch {
+      state.remoteFailures += 1
+    }
+  }
+}
+
+async function downloadRemoteScreenshot(fetchImpl, url, maxBytes, timeoutMs) {
+  const response = await fetchImpl(url, {
+    method: 'GET',
+    redirect: 'error',
+    headers: { accept: 'image/png, image/jpeg, image/webp, image/gif' },
+    signal: AbortSignal.timeout(timeoutMs),
+  })
+  if (!response.ok) throw new Error('Volcengine screenshot download failed')
+  const declaredBytes = Number(response.headers.get('content-length'))
+  if (Number.isFinite(declaredBytes) && declaredBytes > maxBytes) return { kind: 'oversized' }
+  const data = await readBoundedBody(response, maxBytes)
+  if (data === undefined) return { kind: 'oversized' }
+  const mediaType = sniffMediaType(data)
+  if (mediaType === undefined) return { kind: 'invalid' }
+  return { kind: 'image', identity: digest(data), mediaType, data }
+}
+
+async function readBoundedBody(response, maxBytes) {
+  const reader = response.body?.getReader()
+  if (reader === undefined) {
+    const data = Buffer.from(await response.arrayBuffer())
+    return data.byteLength <= maxBytes ? data : undefined
+  }
+  const chunks = []
+  let bytes = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    bytes += value.byteLength
+    if (bytes > maxBytes) {
+      await reader.cancel().catch(() => undefined)
+      return undefined
+    }
+    chunks.push(Buffer.from(value))
+  }
+  return Buffer.concat(chunks, bytes)
+}
+
+function parseRemoteScreenshotUrl(value) {
+  let url
+  try {
+    url = new URL(value)
+  } catch {
+    return undefined
+  }
+  const hostAllowed = url.hostname === 'volces.com' || url.hostname.endsWith('.volces.com')
+  const portAllowed = url.port === '' || url.port === '443' || url.port === '9924'
+  if (url.protocol !== 'https:' || !hostAllowed || !portAllowed || url.username !== '' || url.password !== '') {
+    return undefined
+  }
+  return { url: url.href, identity: digest(url.href) }
 }
 
 function sniffMediaType(data) {
@@ -194,6 +373,10 @@ function extension(mediaType) {
 
 function positiveInteger(value) {
   return Number.isSafeInteger(value) && value > 0 ? value : undefined
+}
+
+function digest(value) {
+  return createHash('sha256').update(value).digest('hex')
 }
 
 function isRecord(value) {

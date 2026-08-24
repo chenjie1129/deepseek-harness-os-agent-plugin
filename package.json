@@ -1,6 +1,6 @@
 {
   "name": "dsh-os-agent-plugin",
-  "version": "0.3.0",
+  "version": "0.3.5",
   "description": "Self-contained Volcengine Mobile Use Agent runtime and configuration UI for DeepSeek Harness.",
   "type": "module",
   "main": "index.js",
@@ -11,7 +11,7 @@
   },
   "scripts": {
     "build": "node scripts/build-client.mjs",
-    "check": "node --check index.js && node --check volcengine.js && node --check web-config.js && node --check screenshots.js && node --check scripts/build-client.mjs && node --check scripts/verify-harness-install.mjs && node --check examples/headless-run.mjs",
+    "check": "node --check index.js && node --check volcengine.js && node --check web-config.js && node --check screenshots.js && node --check run-screenshot-monitor.js && node --check scripts/build-client.mjs && node --check scripts/verify-harness-install.mjs && node --check examples/headless-run.mjs",
     "test": "vitest run"
   },
   "files": [
@@ -19,6 +19,7 @@
     "volcengine.js",
     "web-config.js",
     "screenshots.js",
+    "run-screenshot-monitor.js",
     "lib/client.js",
     "cordis.patch.yml",
     "README.md",

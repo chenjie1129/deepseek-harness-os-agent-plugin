@@ -117,7 +117,11 @@ The Volcengine account must have Mobile Use Agent enabled and permission to oper
 
 ### Task screenshots
 
-When **Show task screenshots** is on, new start requests set Volcengine's `UseBase64Screenshot` option. The plugin polls screenshot-bearing intermediate steps in the background, accumulates and deduplicates them for the run, removes base64 and signed screenshot URLs from text output, validates PNG/JPEG/WebP/GIF bytes through Harness, and stores them as durable attachments. When Volcengine returns a signed download URL instead of inline base64, the plugin downloads it server-side only over HTTPS from an allowlisted `volces.com` host, without forwarding credentials or the URL to the model. A bounded copy of validated preview data is persisted only in Tool presentation metadata for the clickable Web UI gallery; the model-facing Tool result remains text-only, so text-only DeepSeek adapters keep working. Screenshot capture therefore does not depend on the model's own status-poll timing.
+When **Show task screenshots** is on, new start requests set Volcengine's `UseBase64Screenshot` option. The plugin polls `ListAgentRunCurrentStep` in the background and preserves each distinct current-step snapshot as an ordered, visible task history. On completion it calls `GetAgentResult` with the documented `IsDetail=true` flag, which returns the run's complete `ScreenShots` collection rather than the default text-only result. The plugin accumulates and deduplicates those images, removes base64 and signed screenshot URLs from text output, validates PNG/JPEG/WebP/GIF bytes through Harness, and stores them as durable attachments.
+
+When Volcengine returns a signed download URL instead of inline base64, the plugin downloads it server-side only over HTTPS from an allowlisted `volces.com` host, without forwarding credentials or the URL to the model. A bounded copy of validated preview data is persisted only in Tool presentation metadata for the clickable Web UI gallery; the model-facing Tool result remains text-only, so text-only DeepSeek adapters keep working. The result card shows both the ordered snapshots captured while the task ran and Volcengine's reported `TotalSteps`.
+
+Volcengine's `CallbackInfo` is not a step-history or screenshot API: its documented callbacks report lifecycle status, failure, and interruption events. A callback receiver can be useful for a publicly reachable server, but it cannot replace `IsDetail=true` for screenshots or `ListAgentRunCurrentStep` snapshots for action history. This local Harness plugin therefore does not expose port 3080 as a public callback target.
 
 The switch affects tasks started after it is enabled. Harness deployment image-count and byte limits still apply; the text result reports when images were absent, rejected, or capped. This feature is independent of `screen_record` and does not require TOS unless recording is also requested.
 
@@ -133,7 +137,7 @@ Integration-tested with DeepSeek Harness `0.1.1-rc.2`, using extension surfaces 
 | `... Product Id is missing.` / `... PodId is missing.` | Both are required before starting a task |
 | `TOS bucket, endpoint, and region must be configured together.` | Set all three, or clear all three |
 | `Screen recording requires TOS bucket, endpoint, and region.` | Configure TOS before passing `screen_record: true` |
-| Screenshot count is `0` | Enable **Show task screenshots**, save, then start a new task; keep Harness running until the task completes and confirm Volcengine returned at least one screenshot-bearing step |
+| Screenshot count is `0` | Enable **Show task screenshots**, save, then start a new task; keep Harness running until the task completes so the plugin can request `GetAgentResult?IsDetail=true` |
 | A screenshot was rejected or capped | Check the Harness attachment image type, count, byte, and pixel limits |
 | `Volcengine Mobile Use API rejected the request (...)` | Check that Mobile Use Agent is enabled and the key can operate that PodId |
 
@@ -161,7 +165,9 @@ The committed `lib/client.js` is required for Git installation. GitHub Actions r
 - [Volcengine Mobile Use Agent product page](https://www.volcengine.com/product/MobileUseAgent)
 - [Mobile Use OpenAPI](https://docs.volcengine.com/docs/6394/1953040?lang=zh)
 - [RunAgentTaskOneStep (`UseBase64Screenshot`)](https://www.volcengine.com/docs/6394/2105943)
+- [ListAgentRunCurrentStep](https://www.volcengine.com/docs/6394/1953039?lang=zh)
 - [GetAgentResult](https://www.volcengine.com/docs/6394/1953054?lang=zh)
+- [Task status callback](https://www.volcengine.com/docs/6394/1953047?lang=zh)
 - [Python sample](https://github.com/volcengine/vePhone/blob/main/Quick%20Start/MobileUse/openapi_sample/python_openapi_sample.py)
 
 ## License

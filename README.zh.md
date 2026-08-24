@@ -117,7 +117,11 @@ pnpm dsh --profile web
 
 ### 任务截图
 
-打开**显示任务截图**后，新任务的启动请求会设置火山引擎 `UseBase64Screenshot` 选项。插件会在后台轮询可能包含截图的中间步骤，按任务累计并去重截图，从文字输出中移除 Base64 及签名截图 URL，再通过 Harness 校验 PNG/JPEG/WebP/GIF 字节，并保存为持久化 attachments。如果火山引擎返回签名下载地址而非内联 Base64，插件只会在服务端通过 HTTPS 从允许的 `volces.com` 主机下载，不会向模型转发密钥或该 URL。经过校验且受大小限制的预览副本只会持久化在工具展示元数据中，用于网页端可点击图库；发给模型的工具结果保持纯文本，因此兼容只支持文本的 DeepSeek 适配器。截图采集不再依赖模型自身的状态轮询时机。
+打开**显示任务截图**后，新任务的启动请求会设置火山引擎 `UseBase64Screenshot` 选项。插件会在后台轮询 `ListAgentRunCurrentStep`，将每个不同的当前步骤快照保存为有序、可见的任务历史。任务完成后，插件会按文档要求以 `IsDetail=true` 调用 `GetAgentResult`，从而获得整次运行的完整 `ScreenShots` 集合，而不是默认的纯文字结果。插件会累计并去重这些图片，从文字输出中移除 Base64 及签名截图 URL，再通过 Harness 校验 PNG/JPEG/WebP/GIF 字节，并保存为持久化 attachments。
+
+如果火山引擎返回签名下载地址而非内联 Base64，插件只会在服务端通过 HTTPS 从允许的 `volces.com` 主机下载，不会向模型转发密钥或该 URL。经过校验且受大小限制的预览副本只会持久化在工具展示元数据中，用于网页端可点击图库；发给模型的工具结果保持纯文本，因此兼容只支持文本的 DeepSeek 适配器。结果卡片会同时显示运行期间捕获的有序步骤快照，以及火山引擎报告的 `TotalSteps`。
+
+火山引擎的 `CallbackInfo` 并不是步骤历史或截图接口：文档中的回调只报告任务状态、失败与中断等生命周期事件。回调接收端适用于拥有公网可达服务的部署，但无法替代 `IsDetail=true` 获取截图，也无法替代 `ListAgentRunCurrentStep` 快照形成动作历史。因此，本地 Harness 插件不会把 3080 端口暴露为公网回调地址。
 
 该开关只影响开启并保存配置后新启动的任务。截图仍受 Harness 部署的图片数量与字节限制；图片缺失、被拒绝或被截断时，文字结果会给出说明。此功能与 `screen_record` 相互独立；只有同时要求录屏时才需要 TOS。
 
@@ -133,7 +137,7 @@ pnpm dsh --profile web
 | `... Product Id is missing.` / `... PodId is missing.` | 启动任务前两者都必须填写 |
 | `TOS bucket, endpoint, and region must be configured together.` | 三项全部填写，或全部留空 |
 | `Screen recording requires TOS bucket, endpoint, and region.` | 传 `screen_record: true` 前先配好 TOS |
-| 截图数量为 `0` | 打开**显示任务截图**并保存，然后新建任务；保持 Harness 运行至任务完成，并确认火山引擎至少返回过一个含截图的步骤 |
+| 截图数量为 `0` | 打开**显示任务截图**并保存，然后新建任务；保持 Harness 运行至任务完成，以便插件请求 `GetAgentResult?IsDetail=true` |
 | 截图被拒绝或截断 | 检查 Harness attachments 的图片类型、数量、字节与像素限制 |
 | `Volcengine Mobile Use API rejected the request (...)` | 检查是否已开通 Mobile Use Agent，以及密钥是否有权操作该 PodId |
 
@@ -161,7 +165,9 @@ pnpm audit --audit-level high
 - [火山引擎 Mobile Use Agent 产品页](https://www.volcengine.com/product/MobileUseAgent)
 - [Mobile Use OpenAPI](https://docs.volcengine.com/docs/6394/1953040?lang=zh)
 - [RunAgentTaskOneStep（`UseBase64Screenshot`）](https://www.volcengine.com/docs/6394/2105943)
+- [ListAgentRunCurrentStep](https://www.volcengine.com/docs/6394/1953039?lang=zh)
 - [GetAgentResult](https://www.volcengine.com/docs/6394/1953054?lang=zh)
+- [任务状态更新回调](https://www.volcengine.com/docs/6394/1953047?lang=zh)
 - [Python 示例](https://github.com/volcengine/vePhone/blob/main/Quick%20Start/MobileUse/openapi_sample/python_openapi_sample.py)
 
 ## 许可

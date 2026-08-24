@@ -1,8 +1,9 @@
 /** Capture screenshot-bearing Mobile Use steps independently of model timing. */
 
 import { createScreenshotCollector, createScreenshotResult } from './screenshots.js'
+import { addTaskHistory, createTaskHistory } from './task-history.js'
 
-export const DEFAULT_SCREENSHOT_POLL_INTERVAL_MS = 500
+export const DEFAULT_SCREENSHOT_POLL_INTERVAL_MS = 250
 const DEFAULT_COMPLETED_RETENTION_MS = 30 * 60 * 1_000
 const DEFAULT_MAX_RETAINED_RUNS = 32
 const TERMINAL_TEXT = new Set([
@@ -32,6 +33,7 @@ export class RunScreenshotMonitor {
     const state = {
       runId,
       collector: createScreenshotCollector(this.attachments()),
+      history: createTaskHistory(),
       controller,
       pollTask: undefined,
       polling: true,
@@ -47,10 +49,14 @@ export class RunScreenshotMonitor {
     await this.prune(false)
     const state = this.runs.get(runId)
     if (state === undefined) {
-      return fallbackEnabled ? createScreenshotResult(value, this.attachments()) : undefined
+      if (!fallbackEnabled) return undefined
+      const history = createTaskHistory()
+      history.ingest(value)
+      return addTaskHistory(await createScreenshotResult(value, this.attachments()), history)
     }
     state.lastTouched = this.now()
-    return state.collector.ingest(value)
+    state.history.ingest(value)
+    return addTaskHistory(await state.collector.ingest(value), state.history)
   }
 
   async stopPolling(runId) {
@@ -85,6 +91,7 @@ export class RunScreenshotMonitor {
             state.controller.signal,
           )
           const value = { action: 'ListAgentRunCurrentStep', ...response }
+          state.history.ingest(value)
           await state.collector.ingest(value)
           state.lastTouched = this.now()
           if (isTerminalRunStatus(value)) break

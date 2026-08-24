@@ -31,6 +31,8 @@ const en = {
   discard: 'Discard', save: 'Save', saving: 'Saving…',
   resultCard: 'Mobile Use result', statusCard: 'Mobile Use status', running: 'Running…', waitingForResult: 'Waiting for the API response…',
   screenshot: 'Mobile Use screenshot', oneScreenshot: '1 screenshot', manyScreenshots: '{count} screenshots', textResult: 'Text result', inspect: 'Inspect',
+  taskSteps: 'Task steps', observedSteps: '{count} observed', reportedTotalSteps: 'Volcengine reported {count} agent steps.',
+  stepSucceeded: 'Succeeded', stepNotSucceeded: 'Pending / failed', historyUnavailable: 'Historical current-step snapshots are unavailable for this completed run.',
   openScreenshot: 'Open screenshot', loadingScreenshot: 'Loading…', screenshotLoadFailed: 'Could not load screenshot. Retry', screenshotPreview: 'Screenshot preview', closeScreenshot: 'Close screenshot',
 }
 
@@ -49,6 +51,8 @@ const zh = {
   discard: '放弃', save: '保存', saving: '保存中…',
   resultCard: 'Mobile Use 结果', statusCard: 'Mobile Use 状态', running: '运行中…', waitingForResult: '正在等待接口响应…',
   screenshot: 'Mobile Use 截图', oneScreenshot: '1 张截图', manyScreenshots: '{count} 张截图', textResult: '文字结果', inspect: '检查详情',
+  taskSteps: '任务步骤', observedSteps: '已捕获 {count} 条', reportedTotalSteps: '火山引擎报告共 {count} 个 Agent 步骤。',
+  stepSucceeded: '成功', stepNotSucceeded: '进行中 / 失败', historyUnavailable: '该已完成任务没有可用的历史当前步骤快照。',
   openScreenshot: '打开截图', loadingScreenshot: '加载中…', screenshotLoadFailed: '截图加载失败，点击重试', screenshotPreview: '截图预览', closeScreenshot: '关闭截图',
 }
 

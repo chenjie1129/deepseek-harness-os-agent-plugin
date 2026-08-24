@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   MobileUseError,
   VolcengineMobileUseClient,
+  buildGetAgentResultQuery,
   buildRunAgentTaskOneStepBody,
 } from '../volcengine.js'
 
@@ -87,5 +88,10 @@ describe('Volcengine Mobile Use client', () => {
       .toMatchObject({ UseBase64Screenshot: true })
     expect(buildRunAgentTaskOneStepBody({ ...base, showScreenshots: false }, { task: 'Open Settings' }))
       .not.toHaveProperty('UseBase64Screenshot')
+  })
+
+  it('requests the documented detailed result when screenshot display is enabled', () => {
+    expect(buildGetAgentResultQuery('run-1', true)).toEqual({ RunId: 'run-1', IsDetail: true })
+    expect(buildGetAgentResultQuery('run-1', false)).toEqual({ RunId: 'run-1' })
   })
 })

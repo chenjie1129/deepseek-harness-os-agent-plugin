@@ -36,6 +36,10 @@ export function createScreenshotPresentationMeta(value) {
       return dataUrl === undefined ? [] : [{ ...attachment, dataUrl }]
     }),
     screenshotsFound: value.screenshotsFound,
+    osAgentSteps: Array.isArray(value.steps) ? value.steps : [],
+    ...(Number.isSafeInteger(value.reportedTotalSteps)
+      ? { osAgentReportedTotalSteps: value.reportedTotalSteps }
+      : {}),
   }
 }
 
@@ -162,10 +166,16 @@ function redactScreenshots(value, screenshotContext, state, depth) {
   if (isRecord(value)) {
     const recordScreenshotContext = screenshotContext
       || Object.keys(value).some(key => SCREENSHOT_KEY.test(key))
-    return Object.fromEntries(Object.entries(value).map(([key, child]) => [
-      key,
-      redactScreenshots(child, recordScreenshotContext || SCREENSHOT_KEY.test(key), state, depth + 1),
-    ]))
+    return Object.fromEntries(Object.entries(value).map(([key, child]) => {
+      if (typeof value.screenshot === 'string'
+        && (/^download_?url$/i.test(key) || /^original_(?:screenshot|download_?url)$/i.test(key))) {
+        return [key, '[redundant screenshot URL omitted; processed screenshot stored separately by Harness]']
+      }
+      return [
+        key,
+        redactScreenshots(child, recordScreenshotContext || SCREENSHOT_KEY.test(key), state, depth + 1),
+      ]
+    }))
   }
   if (typeof value !== 'string') return value
 

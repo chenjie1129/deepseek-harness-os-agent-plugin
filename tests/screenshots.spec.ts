@@ -169,7 +169,33 @@ describe('Mobile Use screenshot projection', () => {
     expect(createScreenshotPresentationMeta(value)).toEqual({
       osAgentScreenshots: [{ ...attachment, dataUrl: `data:image/png;base64,${PNG}` }],
       screenshotsFound: 1,
+      osAgentSteps: [],
     })
+  })
+
+  it('keeps processed detailed-result screenshots and skips duplicate originals', async () => {
+    const saveImage = vi.fn(async input => ({
+      attachmentId: `attachment-${saveImage.mock.calls.length}`, mediaType: input.mediaType,
+      bytes: input.data.byteLength, width: 1, height: 1, name: input.name,
+    }))
+    const fetchImpl = vi.fn(async () => new Response(Buffer.from(PNG, 'base64'), {
+      status: 200,
+      headers: { 'content-type': 'image/png', 'content-length': '68' },
+    }))
+    const result = await createScreenshotResult({ ScreenShots: {
+      'run-1-0': {
+        id: 'run-1-0',
+        download_url: 'https://mobile-use-openapi.tos-cn-beijing.volces.com/download.png?secret=0',
+        original_download_url: 'https://mobile-use-openapi.tos-cn-beijing.volces.com/original-download.png?secret=00',
+        original_screenshot: 'https://mobile-use-openapi.tos-cn-beijing.volces.com/original.png?secret=1',
+        screenshot: 'https://mobile-use-openapi.tos-cn-beijing.volces.com/processed.png?secret=2',
+      },
+    } }, attachmentStore(saveImage), { fetchImpl })
+
+    expect(fetchImpl).toHaveBeenCalledOnce()
+    expect(result.screenshotsFound).toBe(1)
+    expect(result.screenshots).toHaveLength(1)
+    expect(result.text).not.toContain('secret=')
   })
 })
 

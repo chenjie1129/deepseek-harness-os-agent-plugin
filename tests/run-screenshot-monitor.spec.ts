@@ -30,7 +30,41 @@ describe('run-scoped screenshot monitor', () => {
     expect(saveImage).toHaveBeenCalledOnce()
     expect(result).toMatchObject({ screenshotsFound: 1 })
     expect(result?.screenshots).toHaveLength(1)
+    expect(result?.steps.map(step => step.action)).toEqual(['start', 'take_screenshot'])
     expect(result?.text).not.toContain(PNG)
+    expect(result?.text).toContain('Task step history:')
+    await monitor.dispose()
+  })
+
+  it('deduplicates repeated current-step snapshots and preserves provider totals', async () => {
+    const response = {
+      requestId: 'status-1',
+      result: {
+        RunId: 'run-history', Status: 2, StepId: 'step-1', TotalSteps: 2,
+        Results: [{
+          Action: 'tap', Param: { content: 'Open Settings' },
+          StepResult: { IsSuccess: true, Result: '{"content":"opened"}' },
+          Timestamp: '2026-08-25T01:00:00Z',
+        }],
+      },
+    }
+    const client = { call: vi.fn()
+      .mockResolvedValueOnce(response)
+      .mockResolvedValueOnce(response)
+      .mockResolvedValueOnce({ requestId: 'status-2', result: {
+        RunId: 'run-history', Status: 3, StepId: 'step-2', TotalSteps: 2,
+        Results: [{ Action: 'finish', StepResult: { IsSuccess: true }, Timestamp: '2026-08-25T01:00:01Z' }],
+      } }),
+    }
+    const monitor = new RunScreenshotMonitor({ pollIntervalMs: 1, wait: async () => {} })
+
+    await monitor.start({ runId: 'run-history', client, timeoutSeconds: 10 })
+    await vi.waitFor(() => expect(client.call).toHaveBeenCalledTimes(3))
+    const result = await monitor.format('run-history', { result: { TotalSteps: 2 } }, true)
+
+    expect(result?.steps.map(step => step.action)).toEqual(['tap', 'finish'])
+    expect(result?.reportedTotalSteps).toBe(2)
+    expect(result?.text).toContain('Volcengine reported TotalSteps: 2.')
     await monitor.dispose()
   })
 

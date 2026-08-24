@@ -13,6 +13,7 @@ import {
   MobileUseError,
   VolcengineMobileUseClient,
   assertIntegerRange,
+  buildGetAgentResultQuery,
   buildRunAgentTaskOneStepBody,
   trimmed,
 } from './volcengine.js'
@@ -24,6 +25,7 @@ export {
   MobileUseError,
   VolcengineMobileUseClient,
   buildRunAgentTaskOneStepBody,
+  buildGetAgentResultQuery,
   signRequest,
 } from './volcengine.js'
 export { CONFIG_ENDPOINT, createConfigRoute, normalizeConfig } from './web-config.js'
@@ -79,6 +81,19 @@ const SCREENSHOT_PREVIEW_ITEM_SCHEMA = {
   },
 }
 
+const TASK_STEP_ITEM_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    sequence: { type: 'integer', required: true },
+    stepId: { type: 'string' },
+    action: { type: 'string', required: true },
+    timestamp: { type: 'string' },
+    success: { type: 'boolean' },
+    summary: { type: 'string' },
+  },
+}
+
 const SCREENSHOT_OUTPUT = {
   schema: {
     oneOf: [
@@ -92,6 +107,8 @@ const SCREENSHOT_OUTPUT = {
           screenshotPreviews: { type: 'array', items: SCREENSHOT_PREVIEW_ITEM_SCHEMA, required: true },
           screenshotsFound: { type: 'integer', required: true },
           warnings: { type: 'array', items: { type: 'string' }, required: true },
+          steps: { type: 'array', items: TASK_STEP_ITEM_SCHEMA, required: true },
+          reportedTotalSteps: { type: 'integer' },
         },
       },
     ],
@@ -187,7 +204,12 @@ export function apply(ctx, config = {}) {
     async execute(args, exec) {
       const options = await resolveOptions(ctx, current(), { requireDevice: false })
       const runId = requireText(args.run_id, 'run_id')
-      const response = await options.client.call('GetAgentResult', 'GET', { RunId: runId }, exec.signal)
+      const response = await options.client.call(
+        'GetAgentResult',
+        'GET',
+        buildGetAgentResultQuery(runId, options.showScreenshots),
+        exec.signal,
+      )
       const value = { action: 'GetAgentResult', ...response }
       const monitored = await screenshotMonitor.format(runId, value, options.showScreenshots)
       await screenshotMonitor.stopPolling(runId)

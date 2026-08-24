@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resultText, screenshotsFromMeta } from '../src/client/result-model.ts'
+import { resultText, screenshotsFromMeta, taskHistoryFromMeta } from '../src/client/result-model.ts'
 
 describe('Mobile Use result card model', () => {
   it('accepts only complete attachment references with validated inline previews', () => {
@@ -28,5 +28,18 @@ describe('Mobile Use result card model', () => {
       { type: 'image', data: 'must-not-render' },
       { type: 'text', text: 'second' },
     ])).toBe('first\nsecond')
+  })
+
+  it('validates ordered task history and provider totals from presentation metadata', () => {
+    expect(taskHistoryFromMeta({
+      osAgentSteps: [
+        { sequence: 1, stepId: 'step-1', action: 'tap', success: true, summary: 'Opened Settings' },
+        { sequence: 0, action: 'invalid' },
+      ],
+      osAgentReportedTotalSteps: 3,
+    })).toEqual({
+      steps: [{ sequence: 1, stepId: 'step-1', action: 'tap', success: true, summary: 'Opened Settings' }],
+      reportedTotalSteps: 3,
+    })
   })
 })

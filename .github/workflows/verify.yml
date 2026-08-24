@@ -59,11 +59,13 @@ jobs:
       - run: mkdir -p "${RUNNER_TEMP}/plugin-pack"
       - run: pnpm pack --pack-destination "${RUNNER_TEMP}/plugin-pack"
         working-directory: plugin
+      - id: plugin-package
+        run: node -e "const fs = require('node:fs'); const pkg = require('./plugin/package.json'); fs.appendFileSync(process.env.GITHUB_OUTPUT, 'version=' + pkg.version + '\\n')"
       - run: pnpm install --frozen-lockfile
         working-directory: harness
       - run: pnpm build
         working-directory: harness
-      - run: pnpm dsh plugin --profile web add "${RUNNER_TEMP}/plugin-pack/dsh-os-agent-plugin-0.2.0.tgz"
+      - run: pnpm dsh plugin --profile web add "${RUNNER_TEMP}/plugin-pack/dsh-os-agent-plugin-${{ steps.plugin-package.outputs.version }}.tgz"
         working-directory: harness
         env:
           DSH_HOME: ${{ runner.temp }}/dsh-home

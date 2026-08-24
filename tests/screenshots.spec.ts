@@ -42,6 +42,29 @@ describe('Mobile Use screenshot projection', () => {
     expect(result.text).toContain('[remote screenshot URL omitted')
   })
 
+  it('extracts the JSON-encoded StepResult shape returned by Volcengine', async () => {
+    const saveImage = vi.fn(async input => ({
+      attachmentId: 'attachment-provider-shape', mediaType: input.mediaType, bytes: input.data.byteLength,
+      width: 1, height: 1,
+    }))
+    const result = await createScreenshotResult({
+      Results: [{
+        StepResult: {
+          Result: JSON.stringify({
+            download_url: `data:image/png;base64,${PNG}`,
+            screenshot_dimensions: [1080, 1920],
+            screenshot_id: 'screenshot-1',
+          }),
+        },
+      }],
+    }, attachmentStore(saveImage))
+
+    expect(saveImage).toHaveBeenCalledOnce()
+    expect(result.screenshots).toHaveLength(1)
+    expect(result.text).not.toContain(PNG)
+    expect(result.text).toContain('[screenshot stored separately by Harness]')
+  })
+
   it('returns useful text when attachment storage is unavailable', async () => {
     const result = await createScreenshotResult({ Screenshot: PNG }, undefined)
 

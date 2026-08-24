@@ -11,7 +11,7 @@
   },
   "scripts": {
     "build": "node scripts/build-client.mjs",
-    "check": "node --check index.js",
+    "check": "node --check index.js && node --check volcengine.js && node --check web-config.js && node --check screenshots.js && node --check scripts/build-client.mjs && node --check scripts/verify-harness-install.mjs && node --check examples/headless-run.mjs",
     "test": "vitest run"
   },
   "files": [

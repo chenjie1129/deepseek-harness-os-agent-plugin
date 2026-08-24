@@ -77,17 +77,20 @@ function redactScreenshots(value, screenshotContext, state, depth) {
     return value.map(item => redactScreenshots(item, screenshotContext, state, depth + 1))
   }
   if (isRecord(value)) {
+    const recordScreenshotContext = screenshotContext
+      || Object.keys(value).some(key => SCREENSHOT_KEY.test(key))
     return Object.fromEntries(Object.entries(value).map(([key, child]) => [
       key,
-      redactScreenshots(child, screenshotContext || SCREENSHOT_KEY.test(key), state, depth + 1),
+      redactScreenshots(child, recordScreenshotContext || SCREENSHOT_KEY.test(key), state, depth + 1),
     ]))
   }
-  if (!screenshotContext || typeof value !== 'string') return value
+  if (typeof value !== 'string') return value
 
   const nested = parseNestedJson(value)
   if (nested !== undefined) {
-    return JSON.stringify(redactScreenshots(nested, true, state, depth + 1))
+    return JSON.stringify(redactScreenshots(nested, screenshotContext, state, depth + 1))
   }
+  if (!screenshotContext) return value
 
   const parsed = parseEncodedImage(value, state.maxImageBytes)
   if (parsed.kind === 'image') {

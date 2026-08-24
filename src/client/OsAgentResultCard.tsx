@@ -5,7 +5,7 @@ import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { SessionId, ToolCallBlock, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
 import { ImageGallery } from '@deepseek-ai/dsh-client-ui-attachment'
 import type { ToolCallViewProps } from '@deepseek-ai/dsh-client-ui-tool/client'
-import { resultText, screenshotsFromMeta } from './result-model.ts'
+import { resultText, screenshotsFromMeta, taskHistoryFromMeta } from './result-model.ts'
 
 type LoadImage = (sessionId: SessionId, attachment: ImageAttachmentRef) => Promise<string>
 
@@ -19,6 +19,10 @@ export function OsAgentResultCard(props: OsAgentResultCardProps) {
   const result = settledResult(props.block)
   const screenshots = useMemo(
     () => (result === undefined ? [] : screenshotsFromMeta(result.meta)),
+    [result],
+  )
+  const history = useMemo(
+    () => taskHistoryFromMeta(result?.meta),
     [result],
   )
   const previewById = useMemo(
@@ -52,6 +56,31 @@ export function OsAgentResultCard(props: OsAgentResultCardProps) {
       {screenshots.length > 0 ? (
         <div className="osa-tool-result-images">
           <ImageGallery images={screenshots.map(screenshot => ({ attachment: screenshot.attachment }))} load={load} align="start" labels={labels} />
+        </div>
+      ) : null}
+      {history.steps.length > 0 || history.reportedTotalSteps !== undefined ? (
+        <div className="osa-tool-result-steps">
+          <div className="osa-tool-result-steps-header">
+            <span>{props.t('taskSteps')}</span>
+            <span>{props.t('observedSteps').replace('{count}', String(history.steps.length))}</span>
+          </div>
+          {history.steps.length > 0 ? (
+            <ol>
+              {history.steps.map(step => (
+                <li key={`${step.sequence}:${step.stepId ?? step.action}`}>
+                  <div>
+                    <strong>{step.action}</strong>
+                    {step.success === undefined ? null : <span data-success={step.success}>{props.t(step.success ? 'stepSucceeded' : 'stepNotSucceeded')}</span>}
+                    {step.timestamp === undefined ? null : <time dateTime={step.timestamp}>{step.timestamp}</time>}
+                  </div>
+                  {step.summary === undefined ? null : <p>{step.summary}</p>}
+                </li>
+              ))}
+            </ol>
+          ) : <p className="osa-muted">{props.t('historyUnavailable')}</p>}
+          {history.reportedTotalSteps === undefined ? null : (
+            <p className="osa-tool-result-total">{props.t('reportedTotalSteps').replace('{count}', String(history.reportedTotalSteps))}</p>
+          )}
         </div>
       ) : null}
       {result !== undefined ? (

@@ -7,6 +7,20 @@ export interface OsAgentScreenshotPreview {
   dataUrl: string
 }
 
+export interface OsAgentTaskStep {
+  sequence: number
+  stepId?: string
+  action: string
+  timestamp?: string
+  success?: boolean
+  summary?: string
+}
+
+export interface OsAgentTaskHistory {
+  steps: OsAgentTaskStep[]
+  reportedTotalSteps?: number
+}
+
 export function screenshotsFromMeta(meta: unknown): OsAgentScreenshotPreview[] {
   if (!isRecord(meta) || !Array.isArray(meta.osAgentScreenshots)) return []
   return meta.osAgentScreenshots.flatMap((value) => {
@@ -14,6 +28,20 @@ export function screenshotsFromMeta(meta: unknown): OsAgentScreenshotPreview[] {
     const { dataUrl, ...attachment } = value
     return [{ attachment, dataUrl }]
   }).slice(0, 10)
+}
+
+export function taskHistoryFromMeta(meta: unknown): OsAgentTaskHistory {
+  if (!isRecord(meta)) return { steps: [] }
+  const steps = Array.isArray(meta.osAgentSteps)
+    ? meta.osAgentSteps.flatMap((value) => isTaskStep(value) ? [value] : []).slice(0, 500)
+    : []
+  const total = meta.osAgentReportedTotalSteps
+  return {
+    steps,
+    ...(typeof total === 'number' && Number.isSafeInteger(total) && total >= 0
+      ? { reportedTotalSteps: total }
+      : {}),
+  }
 }
 
 export function resultText(content: readonly unknown[]): string {
@@ -37,6 +65,16 @@ function isImageDataUrl(value: unknown, mediaType: unknown): value is string {
   if (!value.startsWith(prefix)) return false
   const encoded = value.slice(prefix.length)
   return encoded.length > 0 && encoded.length % 4 !== 1 && /^[A-Za-z0-9+/]*={0,2}$/.test(encoded)
+}
+
+function isTaskStep(value: unknown): value is OsAgentTaskStep {
+  if (!isRecord(value)) return false
+  return positiveInteger(value.sequence)
+    && typeof value.action === 'string' && value.action !== '' && value.action.length <= 128
+    && (value.stepId === undefined || (typeof value.stepId === 'string' && value.stepId.length <= 512))
+    && (value.timestamp === undefined || (typeof value.timestamp === 'string' && value.timestamp.length <= 64))
+    && (value.success === undefined || typeof value.success === 'boolean')
+    && (value.summary === undefined || (typeof value.summary === 'string' && value.summary.length <= 500))
 }
 
 function positiveInteger(value: unknown): value is number {

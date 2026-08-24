@@ -155,6 +155,14 @@ export function buildRunAgentTaskOneStepBody(options, args) {
   }
 }
 
+/** Request the documented detailed result only when screenshot display is enabled. */
+export function buildGetAgentResultQuery(runId, showScreenshots) {
+  return {
+    RunId: requireText(runId, 'run_id'),
+    ...(showScreenshots === true ? { IsDetail: true } : {}),
+  }
+}
+
 export function assertIntegerRange(value, min, max, label) {
   if (!Number.isSafeInteger(value) || value < min || value > max) {
     throw new MobileUseError(`${label} must be an integer from ${min} to ${max}.`, 'MOBILE_USE_INVALID_CONFIG')
